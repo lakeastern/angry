@@ -1,0 +1,10 @@
+{
+  "name": "angry-tennis-bracket",
+  "version": "0.1.0",
+  "description": "앵그리 테니스 클럽 복식 대진표 생성기",
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "build": "node build.mjs"
+  }
+}

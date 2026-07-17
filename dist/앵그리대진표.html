@@ -1,0 +1,1578 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>앵그리 테니스 클럽 대진표</title>
+<style>
+  :root {
+    --men: #2563eb;
+    --men-bg: #dbeafe;
+    --women: #db2777;
+    --women-bg: #fce7f3;
+    --accent: #16a34a;
+    --border: #d1d5db;
+    --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+    margin: 0; padding: 16px; background: #f5f6f8; color: #1f2937;
+    max-width: 860px; margin-left: auto; margin-right: auto;
+  }
+  h1 { font-size: 1.35rem; margin: 0 0 12px; }
+  h2 { font-size: 1.02rem; margin: 0 0 10px; }
+  section.card {
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+  .chip {
+    border: 1.5px solid var(--border); border-radius: 999px; padding: 6px 13px;
+    background: #fff; cursor: pointer; font-size: 0.95rem; user-select: none;
+  }
+  .chip.m.on { background: var(--men-bg); border-color: var(--men); color: var(--men); font-weight: 700; }
+  .chip.w.on { background: var(--women-bg); border-color: var(--women); color: var(--women); font-weight: 700; }
+  .detail-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  .detail-table th, .detail-table td { border-bottom: 1px solid #eee; padding: 5px 6px; text-align: center; }
+  .detail-table th { color: var(--muted); font-weight: 600; }
+  .detail-table td:first-child { font-weight: 700; }
+  .xr {
+    display: inline-block; width: 24px; height: 24px; line-height: 22px; text-align: center;
+    border: 1px solid var(--border); border-radius: 5px; cursor: pointer; margin: 0 1.5px; font-size: 0.8rem;
+    background: #fff; user-select: none;
+  }
+  .xr.on { background: #fee2e2; border-color: #dc2626; color: #dc2626; font-weight: 700; }
+  button.primary {
+    background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+    padding: 10px 22px; font-size: 1rem; font-weight: 700; cursor: pointer;
+  }
+  button.ghost {
+    background: #fff; border: 1.5px solid var(--border); border-radius: 8px;
+    padding: 9px 16px; font-size: 0.95rem; cursor: pointer;
+  }
+  .banner { border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; font-size: 0.9rem; }
+  .banner.error { background: #fee2e2; border: 1px solid #dc2626; color: #991b1b; }
+  .banner.warn { background: #fef3c7; border: 1px solid #d97706; color: #92400e; }
+  .banner.info { background: #e0f2fe; border: 1px solid #0284c7; color: #075985; }
+  .banner ul { margin: 4px 0 0 18px; padding: 0; }
+  table.bracket { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+  table.bracket th, table.bracket td { border: 1px solid var(--border); padding: 7px 8px; font-size: 0.92rem; }
+  table.bracket th { background: #f3f4f6; }
+  td.roundcell { text-align: center; font-weight: 800; background: #f9fafb; width: 52px; }
+  .gtype { display: inline-block; font-size: 0.72rem; border-radius: 4px; padding: 1px 6px; margin-right: 6px; vertical-align: 1px; font-weight: 700; }
+  .gtype.MM { background: var(--men-bg); color: var(--men); }
+  .gtype.WW { background: var(--women-bg); color: var(--women); }
+  .gtype.MX { background: #ede9fe; color: #7c3aed; }
+  .tok {
+    display: inline-block; padding: 3px 9px; border-radius: 6px; margin: 1px;
+    cursor: pointer; font-weight: 700; font-size: 0.92rem; border: 1.5px solid transparent; user-select: none;
+  }
+  .tok.m { background: var(--men-bg); color: var(--men); }
+  .tok.w { background: var(--women-bg); color: var(--women); }
+  .tok.sel { border-color: #111; box-shadow: 0 0 0 2px #11182740; }
+  .vs { color: var(--muted); font-weight: 700; margin: 0 6px; font-size: 0.85rem; }
+  .diffbadge { float: right; color: var(--muted); font-size: 0.8rem; margin-top: 4px; }
+  .lessonlabel { color: var(--muted); font-size: 0.85rem; font-weight: 700; }
+  .statline { font-size: 0.9rem; color: #374151; margin: 8px 0; }
+  .preficon { font-size: 0.75rem; }
+  .hint { color: var(--muted); font-size: 0.82rem; margin-top: 6px; }
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #111827; color: #fff; padding: 10px 18px; border-radius: 8px;
+    font-size: 0.9rem; opacity: 0; transition: opacity 0.25s; pointer-events: none; z-index: 50;
+  }
+  #toast.show { opacity: 0.94; }
+  label.radio { margin-right: 14px; font-size: 0.95rem; }
+  input[type="number"] { width: 64px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.95rem; }
+  @media print {
+    body { background: #fff; padding: 0; max-width: none; }
+    .no-print { display: none !important; }
+    section.card { border: 0; padding: 4px 0; margin: 0; }
+    table.bracket th, table.bracket td { padding: 5px 6px; }
+    .tok { cursor: default; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast"></div>
+<script>
+'use strict';
+// ─── engine/rng.js ───
+// 시드 가능한 PRNG (mulberry32) — 같은 시드면 항상 같은 대진표가 나와 재현 가능하다.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function makeRng(seed) {
+  const next = mulberry32(seed);
+  return {
+    next,
+    int(n) {
+      return Math.floor(next() * n);
+    },
+    pick(arr) {
+      return arr[Math.floor(next() * arr.length)];
+    },
+    shuffle(arr) {
+      const a = arr.slice();
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(next() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    },
+    jitter(scale = 1) {
+      return (next() - 0.5) * scale;
+    },
+  };
+}
+
+// ─── engine/validate.js ───
+// 스케줄 검증기 — 엔진 자기검증, 비용 계산, UI 수동편집 경고가 모두 이 모듈을 공유한다.
+
+function pairKey(a, b) {
+  return a < b ? a + '|' + b : b + '|' + a;
+}
+
+function teamGenderType(team, byId) {
+  const g = team.map((id) => byId.get(id).gender).sort().join('');
+  if (g === 'MM') return 'MM';
+  if (g === 'WW') return 'WW';
+  return 'MW';
+}
+
+// 스케줄 전체를 한 번 훑어 통계를 만든다. (비용 함수와 검증기가 함께 사용)
+function computeStats(schedule, plan) {
+  const byId = plan.byId;
+  const R = schedule.rounds.length;
+
+  const per = new Map();
+  for (const p of plan.players) {
+    per.set(p.id, { games: 0, sits: 0, mixed: 0, sitRounds: [], gameRounds: [] });
+  }
+
+  const partnerCount = new Map();
+  const meetCount = new Map();
+  const structural = [];
+  const gameDiffs = [];
+  let scoreDiffSum = 0;
+
+  schedule.rounds.forEach((rd, r) => {
+    const seen = new Map(); // id → 배정 횟수 (라운드 내 중복 감지)
+    const mark = (id, where) => {
+      if (!byId.has(id)) {
+        structural.push({ code: 'E_UNKNOWN_PLAYER', round: r, message: `${r + 1}라운드에 알 수 없는 선수(${id})가 있습니다.` });
+        return;
+      }
+      seen.set(id, (seen.get(id) || 0) + 1);
+      const p = byId.get(id);
+      if (p.unavailable.has(r)) {
+        structural.push({ code: 'E_EXCLUDED_ASSIGNED', round: r, players: [id], message: `${r + 1}라운드에서 제외된 ${p.label}이(가) ${where}에 배정되었습니다.` });
+      }
+    };
+
+    for (const game of rd.games) {
+      const [t1, t2] = game.teams;
+      const all = [...t1, ...t2];
+      if (all.length !== 4 || new Set(all).size !== 4) {
+        structural.push({ code: 'E_BAD_GAME', round: r, message: `${r + 1}라운드 ${game.court}코트 게임 구성이 잘못되었습니다(4인 미충족).` });
+        continue;
+      }
+      all.forEach((id) => mark(id, `${game.court}코트`));
+      if (!all.every((id) => byId.has(id))) continue;
+
+      const type1 = teamGenderType(t1, byId);
+      const type2 = teamGenderType(t2, byId);
+      if (type1 !== type2) {
+        structural.push({ code: 'E_JAPBOK', round: r, players: all, message: `${r + 1}라운드 ${game.court}코트가 잡복(${type1} vs ${type2})입니다.` });
+      }
+      const actualType = type1 === type2 ? (type1 === 'MW' ? 'MX' : type1) : null;
+
+      for (const id of all) {
+        const s = per.get(id);
+        s.games++;
+        s.gameRounds.push(r);
+        if (actualType === 'MX') s.mixed++;
+      }
+      for (const team of [t1, t2]) {
+        const k = pairKey(team[0], team[1]);
+        partnerCount.set(k, (partnerCount.get(k) || 0) + 1);
+      }
+      for (const x of t1) for (const y of t2) {
+        const k = pairKey(x, y);
+        meetCount.set(k, (meetCount.get(k) || 0) + 1);
+      }
+      const sum = (team) => team.reduce((acc, id) => acc + byId.get(id).score, 0);
+      const diff = Math.abs(sum(t1) - sum(t2));
+      gameDiffs.push({ round: r, court: game.court, diff });
+      scoreDiffSum += diff;
+    }
+
+    for (const id of rd.lesson) {
+      mark(id, '레슨/대기');
+      if (byId.has(id)) {
+        const s = per.get(id);
+        s.sits++;
+        s.sitRounds.push(r);
+      }
+    }
+
+    for (const [id, cnt] of seen) {
+      if (cnt > 1) {
+        structural.push({ code: 'E_DUP_ASSIGN', round: r, players: [id], message: `${r + 1}라운드에 ${byId.get(id).label}이(가) ${cnt}번 배정되었습니다.` });
+      }
+    }
+
+    // 배정 누락: 가용 인원인데 게임에도 레슨/대기에도 없음
+    for (const p of plan.players) {
+      if (!p.unavailable.has(r) && !seen.has(p.id)) {
+        structural.push({ code: 'E_UNASSIGNED', round: r, players: [p.id], message: `${r + 1}라운드에서 ${p.label}이(가) 게임에도 레슨/대기에도 배정되지 않았습니다.` });
+      }
+    }
+  });
+
+  // 파트너 중복
+  let partnerRepeats = 0;
+  const repeatedPartners = [];
+  for (const [k, cnt] of partnerCount) {
+    if (cnt > 1) {
+      partnerRepeats += cnt - 1;
+      repeatedPartners.push({ pair: k.split('|'), count: cnt });
+    }
+  }
+
+  // 상대 중복
+  let opponentPenalty = 0;
+  let maxMeet = 0;
+  const frequentOpponents = [];
+  for (const [k, cnt] of meetCount) {
+    if (cnt > maxMeet) maxMeet = cnt;
+    if (cnt > 1) {
+      opponentPenalty += (cnt - 1) * (cnt - 1);
+      frequentOpponents.push({ pair: k.split('|'), count: cnt });
+    }
+  }
+
+  // 연속 결장(레슨/대기)
+  let consecutiveSits = 0;
+  const consecutiveSitList = [];
+  for (const p of plan.players) {
+    const rounds = per.get(p.id).sitRounds;
+    for (let i = 1; i < rounds.length; i++) {
+      if (rounds[i] === rounds[i - 1] + 1) {
+        consecutiveSits++;
+        consecutiveSitList.push({ id: p.id, rounds: [rounds[i - 1], rounds[i]] });
+      }
+    }
+  }
+
+  // 게임 수 편차: 가용 라운드 수가 같은 그룹 내에서 max−min ≤ 1이 목표
+  const groups = new Map();
+  for (const p of plan.players) {
+    let availCount = 0;
+    for (let r = 0; r < R; r++) if (!p.unavailable.has(r)) availCount++;
+    if (!groups.has(availCount)) groups.set(availCount, []);
+    groups.get(availCount).push(p.id);
+  }
+  let spreadPenalty = 0;
+  const spreadDetails = [];
+  for (const [availCount, ids] of groups) {
+    if (ids.length < 2) continue;
+    const counts = ids.map((id) => per.get(id).games);
+    const mx = Math.max(...counts);
+    const mn = Math.min(...counts);
+    if (mx - mn > 1) {
+      spreadPenalty += mx - mn - 1;
+      spreadDetails.push({ availCount, max: mx, min: mn, ids });
+    }
+  }
+
+  // 레슨 로테이션(정기): 3라운드 내 전원 1회 레슨 — 이론적 최소 미달성분만 벌점
+  let rotationMiss = 0;
+  let rotationMissedIds = [];
+  if (schedule.type === 'regular' && R >= 3) {
+    const first3Byes = schedule.rounds.slice(0, 3).reduce((acc, rd) => acc + rd.lesson.length, 0);
+    const needIds = plan.players.filter((p) => [0, 1, 2].some((r) => !p.unavailable.has(r))).map((p) => p.id);
+    const missed = needIds.filter((id) => !per.get(id).sitRounds.some((r) => r < 3));
+    const theoreticalMiss = Math.max(0, needIds.length - first3Byes);
+    rotationMiss = Math.max(0, missed.length - theoreticalMiss);
+    rotationMissedIds = missed;
+  }
+
+  // 신규회원 레슨 미충족(정기, 레슨 슬롯이 있는 경우만)
+  let newMemberLessonMiss = 0;
+  if (schedule.type === 'regular') {
+    const anyByes = schedule.rounds.some((rd) => rd.lesson.length > 0);
+    if (anyByes) {
+      for (const p of plan.players) {
+        if (p.prefs.newMember && per.get(p.id).sits === 0) newMemberLessonMiss++;
+      }
+    }
+  }
+
+  // 월례: 인당 혼복 1회
+  let mixedUncovered = 0;
+  const mixedUncoveredIds = [];
+  if (schedule.type === 'monthly' && plan.M > 0 && plan.W > 0) {
+    for (const p of plan.players) {
+      const s = per.get(p.id);
+      if (s.games > 0 && s.mixed === 0) {
+        mixedUncovered++;
+        mixedUncoveredIds.push(p.id);
+      }
+    }
+  }
+
+  // 라운드별 유형 선호: 정기 짝수 라운드는 혼복 우세, 그 외는 동성복식 우세
+  let typePrefCost = 0;
+  schedule.rounds.forEach((rd, r) => {
+    const c = rd.games.filter((g) => teamGenderType(g.teams[0], byId) === 'MW').length;
+    const C = rd.games.length;
+    if (schedule.type === 'regular' && (r + 1) % 2 === 0) typePrefCost += C - c;
+    else typePrefCost += c;
+  });
+
+  // 레슨 그룹 실력 유사성(정기, 최하 우선순위)
+  let lessonSkillSpread = 0;
+  if (schedule.type === 'regular') {
+    for (const rd of schedule.rounds) {
+      if (rd.lesson.length >= 2) {
+        const scores = rd.lesson.filter((id) => byId.has(id)).map((id) => byId.get(id).score);
+        lessonSkillSpread += Math.max(...scores) - Math.min(...scores);
+      }
+    }
+  }
+
+  // 개인 특성(정기): 혼복선호자 혼복 미경험 + 신규회원 상위레벨 매칭 점수
+  let traitPenalty = 0;
+  if (schedule.type === 'regular') {
+    for (const p of plan.players) {
+      if (p.prefs.mixedPreferred && per.get(p.id).games > 0 && per.get(p.id).mixed === 0) traitPenalty += 5;
+    }
+  }
+  for (const p of plan.players) {
+    if (!p.prefs.newMember) continue;
+    for (const rd of schedule.rounds) {
+      for (const game of rd.games) {
+        const all = [...game.teams[0], ...game.teams[1]];
+        if (!all.includes(p.id)) continue;
+        const others = all.filter((id) => id !== p.id && byId.has(id)).map((id) => byId.get(id).score);
+        if (others.length) traitPenalty += Math.min(...others) * 0.1;
+      }
+    }
+  }
+
+  const scoreDiffSq = gameDiffs.reduce((a, g) => a + g.diff * g.diff, 0);
+
+  return {
+    perPlayer: per,
+    scoreDiffSq,
+    partnerCount,
+    meetCount,
+    structural,
+    partnerRepeats,
+    repeatedPartners,
+    opponentPenalty,
+    maxMeet,
+    frequentOpponents,
+    consecutiveSits,
+    consecutiveSitList,
+    spreadPenalty,
+    spreadDetails,
+    rotationMiss,
+    rotationMissedIds,
+    newMemberLessonMiss,
+    mixedUncovered,
+    mixedUncoveredIds,
+    typePrefCost,
+    lessonSkillSpread,
+    traitPenalty,
+    scoreDiffSum,
+    scoreDiffAvg: gameDiffs.length ? scoreDiffSum / gameDiffs.length : 0,
+    scoreDiffMax: gameDiffs.length ? Math.max(...gameDiffs.map((g) => g.diff)) : 0,
+    gameDiffs,
+  };
+}
+
+// 사람이 읽을 수 있는 오류/경고 목록. severity: 'error'(하드 위반) / 'warn'(소프트 미달)
+function validateSchedule(schedule, plan) {
+  const stats = computeStats(schedule, plan);
+  const errors = [];
+  const warnings = [];
+  const byId = plan.byId;
+  const label = (id) => (byId.has(id) ? byId.get(id).label : id);
+
+  for (const s of stats.structural) errors.push({ code: s.code, message: s.message });
+
+  for (const rp of stats.repeatedPartners) {
+    errors.push({
+      code: 'E_PARTNER_REPEAT',
+      message: `${label(rp.pair[0])}·${label(rp.pair[1])} 파트너 조합이 ${rp.count}번 사용되었습니다.`,
+    });
+  }
+
+  for (const cs of stats.consecutiveSitList) {
+    warnings.push({
+      code: 'W_CONSECUTIVE_SIT',
+      message: `${label(cs.id)}이(가) ${cs.rounds[0] + 1}·${cs.rounds[1] + 1}라운드 연속으로 게임에 들어가지 못했습니다.`,
+    });
+  }
+
+  for (const sd of stats.spreadDetails) {
+    warnings.push({
+      code: 'W_GAME_SPREAD',
+      message: `게임 수 차이가 ${sd.max - sd.min}입니다 (최대 ${sd.max}게임, 최소 ${sd.min}게임).`,
+    });
+  }
+
+  if (stats.rotationMiss > 0) {
+    warnings.push({
+      code: 'W_LESSON_ROTATION',
+      message: `3라운드 내 레슨을 받지 못한 인원이 이론적 최소보다 ${stats.rotationMiss}명 많습니다 (${stats.rotationMissedIds.map(label).join(', ')}).`,
+    });
+  }
+
+  if (stats.mixedUncovered > 0) {
+    warnings.push({
+      code: 'W_MIXED_UNCOVERED',
+      message: `혼복 게임을 한 번도 하지 못한 인원: ${stats.mixedUncoveredIds.map(label).join(', ')}`,
+    });
+  }
+
+  for (const fo of stats.frequentOpponents) {
+    if (fo.count >= 3) {
+      warnings.push({
+        code: 'W_FREQUENT_OPPONENT',
+        message: `${label(fo.pair[0])}와(과) ${label(fo.pair[1])}이(가) 상대로 ${fo.count}번 만납니다.`,
+      });
+    }
+  }
+
+  return { errors, warnings, stats };
+}
+
+// ─── engine/planner.js ───
+// Phase A: 설정 정규화, 라운드/코트 계획, 실현 가능성 사전 검사.
+
+class SchedulerError extends Error {
+  constructor(message, suggestions = []) {
+    super(message);
+    this.name = 'SchedulerError';
+    this.suggestions = suggestions;
+  }
+}
+
+const MEN_IDS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+const WOMEN_IDS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+
+// 입력 형식: { id: '1'~'9' | 'A'~'I', prefs?: {gamePriority, newMember, mixedPreferred}, unavailableRounds?: [1-based...] }
+function normalizePlayer(raw) {
+  const id = String(raw.id).toUpperCase();
+  let gender, score;
+  if (MEN_IDS.includes(id)) {
+    gender = 'M';
+    score = Number(id);
+  } else if (WOMEN_IDS.includes(id)) {
+    gender = 'W';
+    score = id.charCodeAt(0) - 64; // A=1 … I=9
+  } else {
+    throw new SchedulerError(`알 수 없는 선수 번호입니다: ${raw.id} (남자 1~9, 여자 A~I)`);
+  }
+  return {
+    id,
+    gender,
+    score,
+    label: (gender === 'M' ? '남' : '여') + id,
+    prefs: {
+      gamePriority: !!(raw.prefs && raw.prefs.gamePriority),
+      newMember: !!(raw.prefs && raw.prefs.newMember),
+      mixedPreferred: !!(raw.prefs && raw.prefs.mixedPreferred),
+    },
+    unavailable: new Set((raw.unavailableRounds || []).map((n) => n - 1)), // 내부는 0-based
+  };
+}
+
+// 라운드에 유효한 (남복 a, 여복 b, 혼복 c) 구성이 존재하는지: m=4a+2c ≤ availM, w=4b+2c ≤ availW
+function enumerateCompositions(courtCount, availM, availW) {
+  const comps = [];
+  for (let c = 0; c <= courtCount; c++) {
+    for (let a = 0; a <= courtCount - c; a++) {
+      const b = courtCount - c - a;
+      const m = 4 * a + 2 * c;
+      const w = 4 * b + 2 * c;
+      if (m <= availM && w <= availW) comps.push({ a, b, c, m, w });
+    }
+  }
+  return comps;
+}
+
+function buildPlan(config) {
+  const type = config.type === 'monthly' ? 'monthly' : 'regular';
+  if (!Array.isArray(config.players) || config.players.length === 0) {
+    throw new SchedulerError('참석자 목록이 비어 있습니다.');
+  }
+
+  const players = config.players.map(normalizePlayer);
+  const ids = new Set(players.map((p) => p.id));
+  if (ids.size !== players.length) throw new SchedulerError('참석자 번호가 중복되었습니다.');
+
+  const men = players.filter((p) => p.gender === 'M');
+  const women = players.filter((p) => p.gender === 'W');
+  const N = players.length;
+  const M = men.length;
+  const W = women.length;
+
+  if (N < 8) {
+    throw new SchedulerError(`참석 인원이 ${N}명입니다. 2코트 게임을 위해 최소 8명이 필요합니다.`, [
+      '인원을 8명 이상으로 늘리거나, 8명 미만 모임은 수동으로 진행하세요.',
+    ]);
+  }
+  if (N > 18) {
+    throw new SchedulerError(`참석 인원이 ${N}명입니다. 현재 버전은 최대 18명까지 지원합니다.`);
+  }
+  if (M === 1) {
+    throw new SchedulerError('남자가 1명이면 어떤 게임(남복 4명, 혼복 2명 필요)도 구성할 수 없습니다.', [
+      '해당 남자 회원을 제외하거나 남자 인원을 2명 이상으로 조정하세요.',
+    ]);
+  }
+  if (W === 1) {
+    throw new SchedulerError('여자가 1명이면 어떤 게임(여복 4명, 혼복 2명 필요)도 구성할 수 없습니다.', [
+      '해당 여자 회원을 제외하거나 여자 인원을 2명 이상으로 조정하세요.',
+    ]);
+  }
+
+  // 라운드·코트 계획
+  let R, courtsPerRound, extraGames = null, gamesPerPerson = null;
+  const planWarnings = [];
+
+  if (type === 'regular') {
+    R = Number(config.rounds) || 5;
+    if (R < 1 || R > 12) throw new SchedulerError('라운드 수는 1~12 사이여야 합니다.');
+    courtsPerRound = Array(R).fill(2);
+  } else {
+    gamesPerPerson = Number(config.gamesPerPerson) || 4;
+    if (gamesPerPerson < 1 || gamesPerPerson > 10) throw new SchedulerError('인당 게임 수는 1~10 사이여야 합니다.');
+    const baseCourts = N >= 12 ? 3 : 2;
+    const raw = N * gamesPerPerson;
+    let T;
+    if (raw % 4 === 0) {
+      T = raw / 4;
+    } else {
+      const d = raw % 4;
+      // 올림하면 (4−d)명이 +1게임, 내림하면 d명이 −1게임 — 편차 인원이 적은 쪽, 동률이면 +1 우선
+      if (4 - d <= d) {
+        T = Math.ceil(raw / 4);
+        extraGames = { delta: +1, count: 4 - d };
+      } else {
+        T = Math.floor(raw / 4);
+        extraGames = { delta: -1, count: d };
+      }
+      planWarnings.push({
+        code: 'W_UNEVEN_GAMES',
+        message: `${N}명 × ${gamesPerPerson}게임은 4로 나누어떨어지지 않아 ${extraGames.count}명이 ${gamesPerPerson + extraGames.delta}게임을 하게 됩니다.`,
+      });
+    }
+    R = Math.ceil(T / baseCourts);
+    // 게임 수를 라운드에 최대한 고르게 분배 (마지막에 몰지 않음 → 연속 대기 완화)
+    courtsPerRound = [];
+    const q = Math.floor(T / R);
+    const rem = T % R;
+    for (let i = 0; i < R; i++) {
+      courtsPerRound.push(q + (Math.floor(((i + 1) * rem) / R) - Math.floor((i * rem) / R)));
+    }
+  }
+
+  // 라운드별 가용 인원·패리티 검사
+  for (let r = 0; r < R; r++) {
+    const avail = players.filter((p) => !p.unavailable.has(r));
+    const availM = avail.filter((p) => p.gender === 'M').length;
+    const availW = avail.length - availM;
+    let C = courtsPerRound[r];
+    if (avail.length < 4 * C) {
+      const reduced = Math.floor(avail.length / 4);
+      if (reduced < 1) {
+        throw new SchedulerError(`${r + 1}라운드 가용 인원이 ${avail.length}명이라 게임을 구성할 수 없습니다.`, [
+          '해당 라운드의 제외 인원을 줄이세요.',
+        ]);
+      }
+      courtsPerRound[r] = reduced;
+      C = reduced;
+      planWarnings.push({
+        code: 'W_ROUND_REDUCED',
+        message: `${r + 1}라운드는 가용 인원 부족으로 ${reduced}개 코트만 운영합니다.`,
+      });
+    }
+    if (enumerateCompositions(C, availM, availW).length === 0) {
+      // 대표 원인: 대기 0명인데 남자(또는 여자)가 홀수 → 잡복 없이 불가능
+      throw new SchedulerError(
+        `${r + 1}라운드(가용 남${availM}/여${availW}, ${C}코트)에서 남복/여복/혼복만으로는 코트를 채울 수 없습니다.` +
+          (avail.length === 4 * C && availM % 2 === 1 ? ' 전원 출전 라운드인데 남자 인원이 홀수라서 발생하는 문제입니다.' : ''),
+        ['인원을 조정하거나(성별 1명 추가/제외), 해당 라운드 제외 인원을 조정하세요.']
+      );
+    }
+  }
+
+  // 파트너 풀 사전 경고: 어떤 선수의 목표 게임 수가 가능한 파트너 수를 넘으면 중복이 불가피
+  const totalSlots = courtsPerRound.reduce((a, c) => a + 4 * c, 0);
+  const targetGames = totalSlots / N;
+  for (const p of players) {
+    const partnerPool = p.gender === 'M' ? M - 1 + W : W - 1 + M;
+    const myRounds = courtsPerRound.length - p.unavailable.size;
+    const myTarget = Math.min(Math.ceil(targetGames), myRounds);
+    if (myTarget > partnerPool) {
+      planWarnings.push({
+        code: 'W_PARTNER_POOL',
+        message: `${p.label}의 예상 게임 수(${myTarget})가 가능한 파트너 수(${partnerPool})보다 많아 파트너 중복이 발생할 수 있습니다.`,
+      });
+    }
+  }
+
+  // 월례 혼복 커버리지 목표
+  let mixedNeedTotal = 0;
+  if (type === 'monthly' && M > 0 && W > 0) {
+    mixedNeedTotal = Math.max(Math.ceil(M / 2), Math.ceil(W / 2));
+  }
+
+  return {
+    type,
+    players,
+    byId: new Map(players.map((p) => [p.id, p])),
+    men,
+    women,
+    N,
+    M,
+    W,
+    R,
+    courtsPerRound,
+    totalGames: courtsPerRound.reduce((a, c) => a + c, 0),
+    targetGames,
+    gamesPerPerson,
+    extraGames,
+    mixedNeedTotal,
+    planWarnings,
+  };
+}
+
+// ─── engine/construct.js ───
+// Phase B: 라운드별 구성 — 레슨(결장)자 선정 → 파트너 페어링(백트래킹) → 매치업.
+// 하드 제약(1인 1게임, 잡복 금지, 파트너 중복 0)은 여기서 구조적으로 보장한다.
+
+
+
+function constructSchedule(plan, rng, opts = {}) {
+  const { allowPartnerRepeat = false, allowConsecutiveSit = false } = opts;
+
+  const games = new Map(); // id → 게임 수
+  const sits = new Map(); // id → 결장(레슨/대기) 수
+  const mixed = new Map(); // id → 혼복 수
+  const lessoned = new Set(); // 한 번이라도 결장(=레슨)한 사람
+  const partnersUsed = new Map(); // pairKey → 횟수
+  const meets = new Map(); // pairKey → 상대로 만난 횟수
+  let satPrev = new Set();
+  for (const p of plan.players) {
+    games.set(p.id, 0);
+    sits.set(p.id, 0);
+    mixed.set(p.id, 0);
+  }
+
+  const rounds = [];
+
+  for (let r = 0; r < plan.R; r++) {
+    const C = plan.courtsPerRound[r];
+    const avail = plan.players.filter((p) => !p.unavailable.has(r));
+    const excluded = plan.players.filter((p) => p.unavailable.has(r)).map((p) => p.id);
+    const availM = avail.filter((p) => p.gender === 'M').sort((a, b) => a.score - b.score);
+    const availW = avail.filter((p) => p.gender === 'W').sort((a, b) => a.score - b.score);
+    const requiredIds = new Set(avail.filter((p) => satPrev.has(p.id)).map((p) => p.id));
+    const reqM = availM.filter((p) => requiredIds.has(p.id)).length;
+    const reqW = availW.filter((p) => requiredIds.has(p.id)).length;
+
+    let comps = enumerateCompositions(C, availM.length, availW.length);
+    if (comps.length === 0) return null;
+    const fitting = comps.filter((cp) => cp.m >= reqM && cp.w >= reqW);
+    if (fitting.length) comps = fitting;
+    else if (!allowConsecutiveSit) return null;
+
+    // 라운드 목표 혼복 수: 정기 짝수 라운드는 최대, 그 외 최소. 월례는 커버리지 긴급도만큼.
+    const cVals = comps.map((cp) => cp.c);
+    const cMin = Math.min(...cVals);
+    const cMax = Math.max(...cVals);
+    let cTarget;
+    if (plan.type === 'regular') {
+      cTarget = (r + 1) % 2 === 0 ? cMax : cMin;
+    } else {
+      let urgency = 0;
+      if (plan.M > 0 && plan.W > 0) {
+        const uncovM = plan.men.filter((p) => mixed.get(p.id) === 0).length;
+        const uncovW = plan.women.filter((p) => mixed.get(p.id) === 0).length;
+        const needGames = Math.max(Math.ceil(uncovM / 2), Math.ceil(uncovW / 2));
+        urgency = Math.ceil(needGames / (plan.R - r));
+      }
+      cTarget = Math.min(cMax, Math.max(cMin, urgency));
+    }
+
+    // 남녀 출전 배분 목표: 성별 잔여 게임 부족분(deficit)에 비례
+    const deficit = (pool) =>
+      pool.reduce((acc, p) => acc + Math.max(0.1, plan.targetGames - games.get(p.id)), 0);
+    const defM = deficit(availM);
+    const defW = deficit(availW);
+    const idealM = (4 * C * defM) / (defM + defW || 1);
+
+    // 성별 출전 균형(게임 수 균등, 4순위)이 유형 선호(10순위)보다 우선하도록 가중
+    const ranked = comps
+      .map((cp) => ({ cp, s: Math.abs(cp.m - idealM) * 40 + Math.abs(cp.c - cTarget) * 12 + rng.jitter(5) }))
+      .sort((a, b) => a.s - b.s)
+      .map((o) => o.cp);
+
+    let built = null;
+    for (const comp of ranked) {
+      built = tryBuildRound(comp);
+      if (built) break;
+    }
+    if (!built) return null;
+
+    // 커밋
+    const courtLetters = ['a', 'b', 'c'];
+    const roundGames = built.games.map((g, i) => ({
+      court: courtLetters[i],
+      type: g.type,
+      teams: g.teams.map((team) => team.map((p) => p.id)),
+      result: null,
+    }));
+    for (const g of built.games) {
+      for (const team of g.teams) {
+        const k = pairKey(team[0].id, team[1].id);
+        partnersUsed.set(k, (partnersUsed.get(k) || 0) + 1);
+      }
+      for (const x of g.teams[0]) for (const y of g.teams[1]) {
+        const k = pairKey(x.id, y.id);
+        meets.set(k, (meets.get(k) || 0) + 1);
+      }
+      for (const p of [...g.teams[0], ...g.teams[1]]) {
+        games.set(p.id, games.get(p.id) + 1);
+        if (g.type === 'MX') mixed.set(p.id, mixed.get(p.id) + 1);
+      }
+    }
+    for (const p of built.sitters) {
+      sits.set(p.id, sits.get(p.id) + 1);
+      lessoned.add(p.id);
+    }
+    satPrev = new Set(built.sitters.map((p) => p.id));
+    rounds.push({
+      games: roundGames,
+      lesson: built.sitters.map((p) => p.id),
+      excluded,
+    });
+
+    // ─── 라운드 내부 헬퍼 ───
+
+    function tryBuildRound(comp) {
+      // 1) 결장자(레슨/대기) 선정
+      const sitM = pickSitters(availM, availM.length - comp.m);
+      if (!sitM) return null;
+      const sitW = pickSitters(availW, availW.length - comp.w);
+      if (!sitW) return null;
+      const sitIds = new Set([...sitM, ...sitW].map((p) => p.id));
+      const playingM = availM.filter((p) => !sitIds.has(p.id));
+      const playingW = availW.filter((p) => !sitIds.has(p.id));
+
+      // 2) 혼복 인원 선발 + 페어링 (실패 시 혼복 인원을 바꿔 재시도)
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const mxMen = pickTop(playingM, 2 * comp.c, mxScore);
+        const mxWomen = pickTop(playingW, 2 * comp.c, mxScore);
+        const mxMenIds = new Set(mxMen.map((p) => p.id));
+        const mxWomenIds = new Set(mxWomen.map((p) => p.id));
+        const mmPool = playingM.filter((p) => !mxMenIds.has(p.id));
+        const wwPool = playingW.filter((p) => !mxWomenIds.has(p.id));
+
+        const mmPairs = pairUpSame(mmPool);
+        if (!mmPairs) continue;
+        const wwPairs = pairUpSame(wwPool);
+        if (!wwPairs) continue;
+        const mxPairs = pairUpMixed(mxMen, mxWomen);
+        if (!mxPairs) continue;
+
+        // 3) 매치업 — 같은 유형의 페어끼리 게임으로 결합
+        const mmGames = bestMatchup(mmPairs);
+        const wwGames = bestMatchup(wwPairs);
+        const mxGames = bestMatchup(mxPairs);
+        if (!mmGames || !wwGames || !mxGames) continue;
+
+        const gamesOut = [
+          ...mmGames.map((t) => ({ type: 'MM', teams: t })),
+          ...wwGames.map((t) => ({ type: 'WW', teams: t })),
+          ...mxGames.map((t) => ({ type: 'MX', teams: t })),
+        ];
+        return { games: gamesOut, sitters: [...sitM, ...sitW] };
+      }
+      return null;
+    }
+
+    function pickSitters(pool, count) {
+      if (count <= 0) return [];
+      let cands = pool.filter((p) => !requiredIds.has(p.id));
+      if (cands.length < count) {
+        if (!allowConsecutiveSit) return null;
+        const extra = pool
+          .filter((p) => requiredIds.has(p.id))
+          .sort((a, b) => sits.get(a.id) - sits.get(b.id) + rng.jitter(0.5));
+        cands = cands.concat(extra);
+      }
+      return cands
+        .map((p) => ({ p, s: sitScore(p) }))
+        .sort((a, b) => b.s - a.s)
+        .slice(0, count)
+        .map((o) => o.p);
+    }
+
+    // 결장 우선순위: 게임 수 많음 > (정기 초반) 미레슨자 > 신규회원 레슨 특전 > 게임선호는 후순위
+    function sitScore(p) {
+      let s = games.get(p.id) * 100;
+      if (plan.type === 'regular' && r < 3 && !lessoned.has(p.id)) s += 30;
+      if (plan.type === 'regular' && p.prefs.newMember && sits.get(p.id) === 0) s += 20;
+      if (p.prefs.gamePriority) s -= 35;
+      s += rng.jitter(8);
+      return s;
+    }
+
+    // 혼복 슬롯 우선순위: 월례는 혼복 미경험자, 정기는 혼복선호자
+    function mxScore(p) {
+      let s = 0;
+      if (plan.type === 'monthly' && mixed.get(p.id) === 0) s += 50;
+      if (plan.type === 'regular' && p.prefs.mixedPreferred) s += 50;
+      s += rng.jitter(20);
+      return s;
+    }
+
+    function pickTop(pool, count, scoreFn) {
+      return pool
+        .map((p) => ({ p, s: scoreFn(p) }))
+        .sort((a, b) => b.s - a.s)
+        .slice(0, count)
+        .map((o) => o.p);
+    }
+
+    // 동성 풀을 미사용 페어로 완전 분할 (MRV + 백트래킹)
+    function pairUpSame(pool) {
+      if (pool.length === 0) return [];
+      const avgSum = (2 * pool.reduce((a, p) => a + p.score, 0)) / pool.length;
+      return recPair(pool, avgSum);
+    }
+
+    function recPair(remaining, avgSum) {
+      if (remaining.length === 0) return [];
+      let best = null;
+      for (const p of remaining) {
+        const cands = remaining.filter(
+          (q) => q !== p && (allowPartnerRepeat || !partnersUsed.has(pairKey(p.id, q.id)))
+        );
+        if (cands.length === 0) return null;
+        if (!best || cands.length < best.cands.length) best = { p, cands };
+      }
+      const { p, cands } = best;
+      const ordered = cands
+        .map((q) => ({ q, s: partnerOrderScore(p, q, avgSum) }))
+        .sort((a, b) => a.s - b.s)
+        .map((o) => o.q);
+      for (const q of ordered) {
+        const rest = remaining.filter((x) => x !== p && x !== q);
+        const res = recPair(rest, avgSum);
+        if (res) return [[p, q], ...res];
+      }
+      return null;
+    }
+
+    // 혼복 페어: 남↔여 이분 매칭 (MRV + 백트래킹)
+    function pairUpMixed(menPool, womenPool) {
+      if (menPool.length === 0) return [];
+      const all = [...menPool, ...womenPool];
+      const avgSum = (2 * all.reduce((a, p) => a + p.score, 0)) / all.length;
+      const rec = (menLeft, womenLeft) => {
+        if (menLeft.length === 0) return [];
+        let best = null;
+        for (const p of menLeft) {
+          const cands = womenLeft.filter(
+            (q) => allowPartnerRepeat || !partnersUsed.has(pairKey(p.id, q.id))
+          );
+          if (cands.length === 0) return null;
+          if (!best || cands.length < best.cands.length) best = { p, cands };
+        }
+        const { p, cands } = best;
+        const ordered = cands
+          .map((q) => ({ q, s: partnerOrderScore(p, q, avgSum) }))
+          .sort((a, b) => a.s - b.s)
+          .map((o) => o.q);
+        for (const q of ordered) {
+          const res = rec(
+            menLeft.filter((x) => x !== p),
+            womenLeft.filter((x) => x !== q)
+          );
+          if (res) return [[p, q], ...res];
+        }
+        return null;
+      };
+      return rec(menPool, womenPool);
+    }
+
+    // 파트너 후보 순서: 팀 합이 풀 평균에 가깝게(균형 밑작업), 신규회원은 강자와, 중복 허용 시 덜 쓴 조합부터
+    function partnerOrderScore(p, q, avgSum) {
+      let s = Math.abs(p.score + q.score - avgSum);
+      if (allowPartnerRepeat) s += (partnersUsed.get(pairKey(p.id, q.id)) || 0) * 100;
+      if (p.prefs.newMember || q.prefs.newMember) s += Math.min(p.score, q.score) * 0.8;
+      s += rng.jitter(1.5);
+      return s;
+    }
+
+    // 같은 유형 페어들을 2개씩 묶어 게임으로 — 상대 중복·점수차 최소 조합 선택
+    function bestMatchup(pairs) {
+      if (pairs.length === 0) return [];
+      if (pairs.length % 2 !== 0) return null;
+      const options = enumerateMatchings(pairs);
+      let best = null;
+      let bestCost = Infinity;
+      for (const opt of options) {
+        let cost = rng.jitter(0.5);
+        for (const [A, B] of opt) {
+          let meetPen = 0;
+          for (const x of A) for (const y of B) meetPen += meets.get(pairKey(x.id, y.id)) || 0;
+          const sum = (t) => t[0].score + t[1].score;
+          cost += meetPen * 10 + Math.abs(sum(A) - sum(B));
+          const four = [...A, ...B];
+          if (four.some((p) => p.prefs.newMember)) cost += Math.min(...four.map((p) => p.score)) * 0.3;
+        }
+        if (cost < bestCost) {
+          bestCost = cost;
+          best = opt;
+        }
+      }
+      return best;
+    }
+
+    function enumerateMatchings(pairs) {
+      if (pairs.length === 0) return [[]];
+      const [first, ...rest] = pairs;
+      const out = [];
+      for (let i = 0; i < rest.length; i++) {
+        const partner = rest[i];
+        const remaining = rest.filter((_, j) => j !== i);
+        for (const sub of enumerateMatchings(remaining)) {
+          out.push([[first, partner], ...sub]);
+        }
+      }
+      return out;
+    }
+  }
+
+  return { type: plan.type, rounds };
+}
+
+// ─── engine/optimize.js ───
+// Phase C: 사전식(lexicographic) 비용 튜플 + 하드 제약 보존형 이웃 연산으로 로컬 서치.
+
+
+// 우선순위 순서 그대로의 비용 튜플 — 앞 요소부터 비교하므로 가중치 역전이 없다.
+function costOf(schedule, plan) {
+  const st = computeStats(schedule, plan);
+  return [
+    st.structural.length * 10 + st.partnerRepeats, // 하드 (항상 0이어야 함)
+    st.consecutiveSits * 2 + st.spreadPenalty * 2, // 준하드: 연속 결장 + 게임 수 편차
+    st.rotationMiss + st.newMemberLessonMiss, // 레슨 로테이션(정기)
+    st.mixedUncovered, // 월례 인당 혼복 1회
+    // 상대 중복(5순위)과 점수 균형(6순위)은 인접 계층이라 가중 합산으로 묶는다.
+    // 사전식으로 완전 분리하면 재대면 1회를 피하려고 점수차 7짜리 게임을 만드는 왜곡이 생긴다.
+    st.opponentPenalty * 8 + st.scoreDiffSq,
+    st.traitPenalty, // 개인 특성 매칭
+    st.typePrefCost, // 라운드별 유형 선호
+    st.lessonSkillSpread, // 레슨 그룹 실력 유사성
+  ];
+}
+
+function cmpCost(a, b) {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] < b[i]) return -1;
+    if (a[i] > b[i]) return 1;
+  }
+  return 0;
+}
+
+function listSlots(rd) {
+  const slots = [];
+  rd.games.forEach((g, gi) => {
+    g.teams.forEach((team, ti) => {
+      team.forEach((id, si) => {
+        slots.push({ kind: 'game', gi, ti, id, set: (v) => (g.teams[ti][si] = v) });
+      });
+    });
+  });
+  rd.lesson.forEach((id, li) => {
+    slots.push({ kind: 'lesson', li, id, set: (v) => (rd.lesson[li] = v) });
+  });
+  return slots;
+}
+
+// 같은 성별끼리만 교환하므로 게임 유형(남복/여복/혼복)이 항상 보존된다.
+function proposeMove(schedule, plan, rng) {
+  const R = schedule.rounds.length;
+  if (rng.next() < 0.88) {
+    const r = rng.int(R);
+    const rd = schedule.rounds[r];
+    const slots = listSlots(rd);
+    if (slots.length < 2) return null;
+    const s1 = rng.pick(slots);
+    const g1 = plan.byId.get(s1.id).gender;
+    const cands = slots.filter((s2) => {
+      if (s2 === s1) return false;
+      if (plan.byId.get(s2.id).gender !== g1) return false;
+      if (s1.kind === 'lesson' && s2.kind === 'lesson') return false; // 무의미
+      if (s1.kind === 'game' && s2.kind === 'game' && s1.gi === s2.gi && s1.ti === s2.ti) return false; // 같은 팀
+      return true;
+    });
+    if (!cands.length) return null;
+    const s2 = rng.pick(cands);
+    const id1 = s1.id;
+    const id2 = s2.id;
+    return {
+      apply() {
+        s1.set(id2);
+        s2.set(id1);
+      },
+      revert() {
+        s1.set(id1);
+        s2.set(id2);
+      },
+    };
+  }
+  // 라운드 순서 교환 — 연속 결장 패턴·유형 선호(짝수 라운드 혼복) 개선용.
+  // 제외 인원이나 코트 수가 다른 라운드끼리 바꾸면 하드 제약이 깨지므로 동일할 때만 허용.
+  if (R < 2) return null;
+  const r1 = rng.int(R);
+  let r2 = rng.int(R);
+  if (r1 === r2) r2 = (r2 + 1) % R;
+  const a = schedule.rounds[r1];
+  const b = schedule.rounds[r2];
+  const sameExcluded =
+    a.excluded.length === b.excluded.length && a.excluded.every((id) => b.excluded.includes(id));
+  if (!sameExcluded || a.games.length !== b.games.length) return null;
+  return {
+    apply() {
+      const t = schedule.rounds[r1];
+      schedule.rounds[r1] = schedule.rounds[r2];
+      schedule.rounds[r2] = t;
+    },
+    revert() {
+      const t = schedule.rounds[r1];
+      schedule.rounds[r1] = schedule.rounds[r2];
+      schedule.rounds[r2] = t;
+    },
+  };
+}
+
+function hillClimb(schedule, plan, rng, iters) {
+  let bestCost = costOf(schedule, plan);
+  for (let i = 0; i < iters; i++) {
+    const move = proposeMove(schedule, plan, rng);
+    if (!move) continue;
+    move.apply();
+    const c = costOf(schedule, plan);
+    const cmp = cmpCost(c, bestCost);
+    if (cmp < 0 || (cmp === 0 && rng.next() < 0.35)) {
+      bestCost = c;
+    } else {
+      move.revert();
+    }
+  }
+  return bestCost;
+}
+
+// ─── engine/scheduler.js ───
+// 공개 API: generateSchedule(config)
+// config = {
+//   type: 'regular' | 'monthly',            // 정기모임(2게임코트+레슨) | 월례대회(3게임코트)
+//   rounds: 5,                              // 정기: 총 라운드 수
+//   gamesPerPerson: 4,                      // 월례: 인당 게임 수
+//   players: [{ id:'1'~'9'|'A'~'I', prefs?:{gamePriority,newMember,mixedPreferred}, unavailableRounds?:[1-based] }],
+//   seed?: number,
+//   searchBudget?: { restarts, iters, polish } // 탐색 강도 (테스트용 축소 가능)
+// }
+
+
+
+
+
+
+function generateSchedule(config) {
+  const plan = buildPlan(config);
+  const seed = Number.isFinite(config.seed) ? config.seed >>> 0 : 20260718;
+  const rng = makeRng(seed || 1);
+  const budget = Object.assign({ restarts: 24, iters: 500, polish: 1500 }, config.searchBudget || {});
+
+  // 완화 사다리: 엄격 → 연속 결장 허용 → 파트너 중복 최소화. 앞 단계가 전멸했을 때만 다음 단계로.
+  const stages = [
+    { opts: {}, relaxations: [] },
+    {
+      opts: { allowConsecutiveSit: true },
+      relaxations: ['연속 결장(레슨/대기) 금지를 완화했습니다. 연속 결장을 최소화하는 방향으로 배정합니다.'],
+    },
+    {
+      opts: { allowConsecutiveSit: true, allowPartnerRepeat: true },
+      relaxations: [
+        '연속 결장(레슨/대기) 금지를 완화했습니다.',
+        '파트너 중복 0회 제약을 지킬 수 없어 "중복 최소화"로 완화했습니다.',
+      ],
+    },
+  ];
+
+  let best = null;
+  let bestCost = null;
+  let usedStage = null;
+  for (const stage of stages) {
+    for (let i = 0; i < budget.restarts; i++) {
+      const s = constructSchedule(plan, rng, stage.opts);
+      if (!s) continue;
+      hillClimb(s, plan, rng, budget.iters);
+      const c = costOf(s, plan);
+      if (!best || cmpCost(c, bestCost) < 0) {
+        best = s;
+        bestCost = c;
+      }
+    }
+    if (best) {
+      usedStage = stage;
+      break;
+    }
+  }
+
+  if (!best) {
+    throw new SchedulerError('대진표를 구성하지 못했습니다. 인원 구성이나 라운드 설정을 조정해 다시 시도해주세요.');
+  }
+
+  hillClimb(best, plan, rng, budget.polish);
+
+  const { errors, warnings, stats } = validateSchedule(best, plan);
+  return {
+    type: plan.type,
+    rounds: best.rounds,
+    seed,
+    plan,
+    errors,
+    warnings: [...plan.planWarnings, ...warnings],
+    stats,
+    relaxationsApplied: usedStage.relaxations,
+  };
+}
+
+// ─── app.js ───
+// 앵그리 테니스 클럽 대진표 — UI
+
+const MEN = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+const WOMEN = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+const STORE_KEY = 'angry-bracket-setup-v1';
+
+const state = {
+  meetingType: 'regular', // 'regular' | 'monthly'
+  rounds: 5,
+  gamesPerPerson: 4,
+  selected: {}, // id → {gamePriority, newMember, mixedPreferred}
+  exclusions: {}, // id → [1-based round…]
+  result: null,
+  seed: null,
+  edited: false,
+  swapSel: null, // {round, loc, id}
+};
+
+// ─── 유틸 ───
+const $ = (sel) => document.querySelector(sel);
+const genderOf = (id) => (MEN.includes(id) ? 'M' : 'W');
+const labelOf = (id) => (genderOf(id) === 'M' ? '남' : '여') + id;
+const scoreOf = (id) => (genderOf(id) === 'M' ? Number(id) : id.charCodeAt(0) - 64);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+function saveSetup() {
+  try {
+    localStorage.setItem(
+      STORE_KEY,
+      JSON.stringify({
+        meetingType: state.meetingType,
+        rounds: state.rounds,
+        gamesPerPerson: state.gamesPerPerson,
+        selected: state.selected,
+        exclusions: state.exclusions,
+      })
+    );
+  } catch (e) { /* 저장 실패는 무시 */ }
+}
+
+function loadSetup() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    if (d.meetingType) state.meetingType = d.meetingType;
+    if (d.rounds) state.rounds = d.rounds;
+    if (d.gamesPerPerson) state.gamesPerPerson = d.gamesPerPerson;
+    if (d.selected) state.selected = d.selected;
+    if (d.exclusions) state.exclusions = d.exclusions;
+  } catch (e) { /* 무시 */ }
+}
+
+function estimatedRounds() {
+  if (state.meetingType === 'regular') return Math.max(1, Math.min(12, state.rounds));
+  const N = Object.keys(state.selected).length;
+  if (N < 8) return state.gamesPerPerson + 1;
+  const T = Math.ceil((N * state.gamesPerPerson) / 4);
+  return Math.ceil(T / (N >= 12 ? 3 : 2));
+}
+
+// ─── 렌더링 ───
+function render() {
+  $('#app').innerHTML = `
+    <h1>🎾 앵그리 테니스 클럽 대진표</h1>
+    ${renderSetup()}
+    ${renderResult()}
+  `;
+  bindSetup();
+  bindResult();
+}
+
+function renderSetup() {
+  const menChips = MEN.map((id) => chip(id)).join('');
+  const womenChips = WOMEN.map((id) => chip(id)).join('');
+  const selectedIds = [...MEN, ...WOMEN].filter((id) => state.selected[id]);
+  const N = selectedIds.length;
+  const M = selectedIds.filter((id) => genderOf(id) === 'M').length;
+
+  return `
+  <section class="card no-print">
+    <h2>1. 모임 설정</h2>
+    <div class="row">
+      <label class="radio"><input type="radio" name="mtype" value="regular" ${state.meetingType === 'regular' ? 'checked' : ''}> 정기모임 (a·b 게임 + c 레슨)</label>
+      <label class="radio"><input type="radio" name="mtype" value="monthly" ${state.meetingType === 'monthly' ? 'checked' : ''}> 월례대회 (3코트 게임)</label>
+    </div>
+    <div class="row" style="margin-top:8px">
+      ${state.meetingType === 'regular'
+        ? `<label>총 라운드 수 <input type="number" id="rounds" min="1" max="12" value="${state.rounds}"></label>`
+        : `<label>인당 게임 수 <input type="number" id="gpp" min="1" max="10" value="${state.gamesPerPerson}"></label>`}
+    </div>
+  </section>
+  <section class="card no-print">
+    <h2>2. 참석자 선택 <span style="font-weight:400;color:var(--muted);font-size:0.85rem">— 남 ${M}명, 여 ${N - M}명, 총 ${N}명</span></h2>
+    <div class="chips">${menChips}</div>
+    <div class="chips">${womenChips}</div>
+    ${N > 0 ? renderDetail(selectedIds) : '<div class="hint">번호를 눌러 오늘 참석자를 선택하세요. 번호가 빠를수록(1, A) 실력이 높습니다.</div>'}
+  </section>
+  <section class="card no-print">
+    <div class="row">
+      <button class="primary" id="gen">대진표 생성</button>
+      ${state.result ? '<button class="ghost" id="regen">🔀 다시 섞기</button>' : ''}
+      ${state.result ? '<button class="ghost" id="print">🖨 인쇄</button>' : ''}
+    </div>
+    <div class="hint">같은 구성이라도 "다시 섞기"를 누르면 다른 대진이 나옵니다.</div>
+  </section>`;
+}
+
+function chip(id) {
+  const on = !!state.selected[id];
+  const g = genderOf(id) === 'M' ? 'm' : 'w';
+  return `<span class="chip ${g} ${on ? 'on' : ''}" data-chip="${id}">${labelOf(id)}</span>`;
+}
+
+function renderDetail(ids) {
+  const R = estimatedRounds();
+  const rows = ids
+    .map((id) => {
+      const p = state.selected[id];
+      const ex = state.exclusions[id] || [];
+      const xr = Array.from({ length: R }, (_, i) => i + 1)
+        .map((r) => `<span class="xr ${ex.includes(r) ? 'on' : ''}" data-xr="${id}:${r}">${r}</span>`)
+        .join('');
+      return `<tr>
+        <td class="${genderOf(id) === 'M' ? 'm' : 'w'}" style="color:${genderOf(id) === 'M' ? 'var(--men)' : 'var(--women)'}">${labelOf(id)}</td>
+        <td><input type="checkbox" data-pref="${id}:gamePriority" ${p.gamePriority ? 'checked' : ''}></td>
+        <td><input type="checkbox" data-pref="${id}:newMember" ${p.newMember ? 'checked' : ''}></td>
+        <td><input type="checkbox" data-pref="${id}:mixedPreferred" ${p.mixedPreferred ? 'checked' : ''}></td>
+        <td style="text-align:left">${xr}</td>
+      </tr>`;
+    })
+    .join('');
+  return `
+  <details ${Object.values(state.selected).some((p) => p.gamePriority || p.newMember || p.mixedPreferred) || Object.keys(state.exclusions).length ? 'open' : ''}>
+    <summary style="cursor:pointer;font-size:0.9rem;color:var(--muted)">개인 특성·라운드 제외 설정</summary>
+    <table class="detail-table" style="margin-top:8px">
+      <tr><th>선수</th><th>게임선호⚡</th><th>신규회원🔰</th><th>혼복선호💞</th><th style="text-align:left">제외 라운드 (지각/조퇴)</th></tr>
+      ${rows}
+    </table>
+    <div class="hint">게임선호: 레슨/대기 배정 최소화 · 신규회원: 레슨 우선 + 상위 실력자와 매칭 · 혼복선호: 혼복 우선 배정(정기모임)</div>
+  </details>`;
+}
+
+function renderResult() {
+  const res = state.result;
+  if (!res) return '';
+  if (res.fatal) {
+    return `<section class="card"><div class="banner error"><b>대진표를 만들 수 없습니다.</b><br>${esc(res.fatal.message)}
+      ${res.fatal.suggestions && res.fatal.suggestions.length ? `<ul>${res.fatal.suggestions.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}
+    </div></section>`;
+  }
+
+  const banners = [];
+  if (res.errors.length) {
+    banners.push(`<div class="banner error"><b>규칙 위반 ${res.errors.length}건</b><ul>${res.errors.map((e) => `<li>${esc(e.message)}</li>`).join('')}</ul></div>`);
+  }
+  if (res.relaxationsApplied.length) {
+    banners.push(`<div class="banner info"><b>자동 완화 적용</b><ul>${res.relaxationsApplied.map((m) => `<li>${esc(m)}</li>`).join('')}</ul></div>`);
+  }
+  if (res.warnings.length) {
+    banners.push(`<div class="banner warn"><b>참고</b><ul>${res.warnings.map((w) => `<li>${esc(w.message)}</li>`).join('')}</ul></div>`);
+  }
+
+  const isReg = res.type === 'regular';
+  const roundsHtml = res.rounds
+    .map((rd, r) => {
+      const gameRows = rd.games
+        .map((g, gi) => {
+          const sum = (t) => t.reduce((a, id) => a + scoreOf(id), 0);
+          const diff = Math.abs(sum(g.teams[0]) - sum(g.teams[1]));
+          const team = (ti) => g.teams[ti].map((id, si) => tok(id, r, `g:${gi}:${ti}:${si}`)).join('');
+          return `<td>
+            <span class="gtype ${g.type}">${{ MM: '남복', WW: '여복', MX: '혼복' }[g.type]}</span>
+            ${team(0)}<span class="vs">vs</span>${team(1)}
+            <span class="diffbadge">점수차 ${diff}</span>
+          </td>`;
+        })
+        .join('');
+      const lessonToks = rd.lesson.map((id, li) => tok(id, r, `l:${li}`)).join('') || '<span class="lessonlabel">—</span>';
+      const excludedTxt = rd.excluded.length
+        ? `<div style="margin-top:3px"><span class="lessonlabel">불참: ${rd.excluded.map(labelOf).join(', ')}</span></div>`
+        : '';
+      return `<tr>
+        <td class="roundcell">${r + 1}R</td>
+        ${gameRows}
+        <td>${lessonToks}${excludedTxt}</td>
+      </tr>`;
+    })
+    .join('');
+
+  const maxCourts = Math.max(...res.rounds.map((rd) => rd.games.length));
+  const courtHeads = Array.from({ length: maxCourts }, (_, i) => `<th>${'abc'[i]}코트</th>`).join('');
+
+  // 인원별 통계
+  const statRows = [...res.stats.perPlayer.entries()]
+    .filter(([id, s]) => s.games + s.sits > 0)
+    .map(([id, s]) => {
+      const prefs = state.selected[id] || {};
+      const icons = `${prefs.gamePriority ? '⚡' : ''}${prefs.newMember ? '🔰' : ''}${prefs.mixedPreferred ? '💞' : ''}`;
+      return `<tr><td>${labelOf(id)} <span class="preficon">${icons}</span></td><td>${s.games}</td><td>${s.mixed}</td><td>${s.sits}</td></tr>`;
+    })
+    .join('');
+
+  return `
+  <section class="card">
+    <h2>${isReg ? '정기모임' : '월례대회'} 대진표 <span style="font-weight:400;color:var(--muted);font-size:0.8rem">(시드 ${res.seed}${state.edited ? ' · 수동 수정됨' : ''})</span></h2>
+    ${banners.join('')}
+    <table class="bracket">
+      <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
+      ${roundsHtml}
+    </table>
+    <div class="hint no-print">선수 이름을 두 번(바꿀 두 사람) 누르면 자리를 맞바꿉니다. 같은 라운드, 같은 성별끼리만 가능합니다.</div>
+    <div class="statline">
+      파트너 중복 <b>${res.stats.partnerRepeats}</b>회 ·
+      같은 상대 최대 <b>${res.stats.maxMeet}</b>번 ·
+      게임 점수차 평균 <b>${res.stats.scoreDiffAvg.toFixed(1)}</b> / 최대 <b>${res.stats.scoreDiffMax}</b>
+    </div>
+    <table class="detail-table" style="max-width:340px">
+      <tr><th>선수</th><th>게임</th><th>혼복</th><th>${isReg ? '레슨' : '대기'}</th></tr>
+      ${statRows}
+    </table>
+  </section>`;
+}
+
+function tok(id, round, loc) {
+  const g = genderOf(id) === 'M' ? 'm' : 'w';
+  const sel = state.swapSel && state.swapSel.round === round && state.swapSel.loc === loc;
+  return `<span class="tok ${g} ${sel ? 'sel' : ''}" data-tok="${id}" data-round="${round}" data-loc="${loc}">${labelOf(id)}</span>`;
+}
+
+// ─── 이벤트 바인딩 ───
+function bindSetup() {
+  document.querySelectorAll('input[name="mtype"]').forEach((el) =>
+    el.addEventListener('change', () => {
+      state.meetingType = el.value;
+      saveSetup();
+      render();
+    })
+  );
+  const rounds = $('#rounds');
+  if (rounds) rounds.addEventListener('change', () => { state.rounds = Math.max(1, Math.min(12, +rounds.value || 5)); saveSetup(); render(); });
+  const gpp = $('#gpp');
+  if (gpp) gpp.addEventListener('change', () => { state.gamesPerPerson = Math.max(1, Math.min(10, +gpp.value || 4)); saveSetup(); render(); });
+
+  document.querySelectorAll('[data-chip]').forEach((el) =>
+    el.addEventListener('click', () => {
+      const id = el.dataset.chip;
+      if (state.selected[id]) {
+        delete state.selected[id];
+        delete state.exclusions[id];
+      } else {
+        state.selected[id] = { gamePriority: false, newMember: false, mixedPreferred: false };
+      }
+      saveSetup();
+      render();
+    })
+  );
+
+  document.querySelectorAll('[data-pref]').forEach((el) =>
+    el.addEventListener('change', () => {
+      const [id, key] = el.dataset.pref.split(':');
+      state.selected[id][key] = el.checked;
+      saveSetup();
+    })
+  );
+
+  document.querySelectorAll('[data-xr]').forEach((el) =>
+    el.addEventListener('click', () => {
+      const [id, rStr] = el.dataset.xr.split(':');
+      const r = +rStr;
+      const list = state.exclusions[id] || [];
+      state.exclusions[id] = list.includes(r) ? list.filter((x) => x !== r) : [...list, r];
+      if (!state.exclusions[id].length) delete state.exclusions[id];
+      saveSetup();
+      render();
+    })
+  );
+
+  const gen = $('#gen');
+  if (gen) gen.addEventListener('click', () => generate());
+  const regen = $('#regen');
+  if (regen) regen.addEventListener('click', () => generate());
+  const print = $('#print');
+  if (print) print.addEventListener('click', () => window.print());
+}
+
+function bindResult() {
+  document.querySelectorAll('[data-tok]').forEach((el) => el.addEventListener('click', () => onTokenClick(el)));
+}
+
+// ─── 생성·수동 편집 ───
+function generate() {
+  const players = [...MEN, ...WOMEN]
+    .filter((id) => state.selected[id])
+    .map((id) => ({
+      id,
+      prefs: state.selected[id],
+      unavailableRounds: state.exclusions[id] || [],
+    }));
+  const config = {
+    type: state.meetingType,
+    rounds: state.rounds,
+    gamesPerPerson: state.gamesPerPerson,
+    players,
+    seed: Math.floor(Math.random() * 1e9),
+  };
+  state.swapSel = null;
+  state.edited = false;
+  try {
+    state.result = generateSchedule(config);
+    state.seed = state.result.seed;
+  } catch (e) {
+    if (e instanceof SchedulerError) {
+      state.result = { fatal: { message: e.message, suggestions: e.suggestions } };
+    } else {
+      state.result = { fatal: { message: '예상치 못한 오류: ' + e.message, suggestions: [] } };
+    }
+  }
+  render();
+  const card = document.querySelectorAll('section.card');
+  if (card.length) card[card.length - 1].scrollIntoView({ behavior: 'smooth' });
+}
+
+function onTokenClick(el) {
+  const round = +el.dataset.round;
+  const loc = el.dataset.loc;
+  const id = el.dataset.tok;
+  if (!state.swapSel) {
+    state.swapSel = { round, loc, id };
+    render();
+    return;
+  }
+  if (state.swapSel.round === round && state.swapSel.loc === loc) {
+    state.swapSel = null;
+    render();
+    return;
+  }
+  if (state.swapSel.round !== round) {
+    toast('같은 라운드 안에서만 맞바꿀 수 있어요.');
+    state.swapSel = null;
+    render();
+    return;
+  }
+  if (genderOf(state.swapSel.id) !== genderOf(id)) {
+    toast('같은 성별끼리만 맞바꿀 수 있어요 (잡복 방지).');
+    state.swapSel = null;
+    render();
+    return;
+  }
+  applySwap(round, state.swapSel.loc, loc);
+  state.swapSel = null;
+  state.edited = true;
+  revalidate();
+  render();
+}
+
+function locRef(rd, loc) {
+  const parts = loc.split(':');
+  if (parts[0] === 'g') {
+    const [, gi, ti, si] = parts.map(Number);
+    return {
+      get: () => rd.games[gi].teams[ti][si],
+      set: (v) => (rd.games[gi].teams[ti][si] = v),
+    };
+  }
+  const li = +parts[1];
+  return {
+    get: () => rd.lesson[li],
+    set: (v) => (rd.lesson[li] = v),
+  };
+}
+
+function applySwap(r, locA, locB) {
+  const rd = state.result.rounds[r];
+  const a = locRef(rd, locA);
+  const b = locRef(rd, locB);
+  const va = a.get();
+  a.set(b.get());
+  b.set(va);
+}
+
+function revalidate() {
+  const res = state.result;
+  const { errors, warnings, stats } = validateSchedule({ type: res.type, rounds: res.rounds }, res.plan);
+  res.errors = errors;
+  res.warnings = [...res.plan.planWarnings, ...warnings];
+  res.stats = stats;
+}
+
+// ─── 시작 ───
+loadSetup();
+render();
+
+</script>
+</body>
+</html>
