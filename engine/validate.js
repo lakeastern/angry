@@ -48,7 +48,14 @@ export function computeStats(schedule, plan) {
       const [t1, t2] = game.teams;
       const all = [...t1, ...t2];
       if (all.length !== 4 || new Set(all).size !== 4) {
-        structural.push({ code: 'E_BAD_GAME', round: r, message: `${r + 1}라운드 ${game.court}코트 게임 구성이 잘못되었습니다(4인 미충족).` });
+        const dups = [...new Set(all.filter((x, i) => all.indexOf(x) !== i))];
+        structural.push({
+          code: 'E_BAD_GAME',
+          round: r,
+          court: game.court,
+          players: dups,
+          message: `${r + 1}라운드 ${game.court}코트 게임 구성이 잘못되었습니다(4인 미충족${dups.length ? ` — ${dups.map((id) => (byId.has(id) ? byId.get(id).label : id)).join(', ')} 중복` : ''}).`,
+        });
         continue;
       }
       all.forEach((id) => mark(id, `${game.court}코트`));

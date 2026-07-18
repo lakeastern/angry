@@ -544,9 +544,14 @@ function renderResult() {
     addPBadge(cs.rounds[0], cs.id, '💤');
     addPBadge(cs.rounds[1], cs.id, '💤');
   });
+  const badGames = new Set(); // `${round}:${court}` — 게임 구성 오류(4인 미충족 등)
   st.structural.forEach((s) => {
     if (s.code === 'E_DUP_ASSIGN' && s.players) s.players.forEach((id) => addPBadge(s.round, id, '⚠️'));
     if (s.code === 'E_EXCLUDED_ASSIGNED' && s.players) s.players.forEach((id) => addPBadge(s.round, id, '⛔'));
+    if (s.code === 'E_BAD_GAME') {
+      badGames.add(s.round + ':' + s.court);
+      if (s.players) s.players.forEach((id) => addPBadge(s.round, id, '⚠️'));
+    }
   });
   // 파트너 중복 팀 강조: 해당 라운드에서 그 두 사람에게 성별 색 부여
   state._dupTeam = new Set(); // `${round}:${id}`
@@ -571,6 +576,7 @@ function renderResult() {
           // vs 색으로 게임 유형 표시: 검정=남복/여복, 파랑=혼복, 핫핑크=잡복
           let vsClass = 'same';
           const icons = [];
+          if (badGames.has(r + ':' + g.court)) icons.push('⚠️'); // 게임 구성 오류 (4인 미충족 등)
           if (all.every(known)) {
             const gtype = (t) => t.map((id) => res.plan.byId.get(id).gender).sort().join('');
             const t1 = gtype(g.teams[0]);
@@ -623,7 +629,7 @@ function renderResult() {
     '⚔️': `⚔️ 같은 상대 ${meetThreshold}번 이상`,
     '📏': '📏 점수차 상한 초과',
     '💤': '💤 연속 결장',
-    '⚠️': '⚠️ 라운드 내 중복 배정',
+    '⚠️': '⚠️ 중복 배정·게임 구성 오류',
     '⛔': '⛔ 제외 인원 배정',
   };
   const legendItems = Object.keys(ICON_DESC).filter((ic) => usedIcons.has(ic)).map((ic) => ICON_DESC[ic]);
