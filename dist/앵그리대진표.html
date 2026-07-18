@@ -1521,13 +1521,30 @@ async function makeShareLink(kind) {
   const { c, bytes } = await compressBytes(te.encode(JSON.stringify(payload)));
   const base = location.protocol === 'file:' ? PUBLIC_URL : location.href.split('#')[0];
   const link = `${base}#d=${c}${b64uEncode(bytes)}`;
-  window.__lastShareLink = link;
+  const finalLink = await shortenLink(link);
+  window.__lastShareLink = finalLink;
+  const label = kind === 'bracket' ? '대진표 공유 링크' : '명단 공유 링크';
   try {
-    await navigator.clipboard.writeText(link);
-    toast(kind === 'bracket' ? '대진표 공유 링크가 복사되었습니다. 카톡에 붙여넣으세요!' : '명단 공유 링크가 복사되었습니다.');
+    await navigator.clipboard.writeText(finalLink);
+    toast(`${label}가 복사되었습니다${finalLink === link ? ' (단축 실패 — 긴 주소로 복사됨)' : ''}. 카톡에 붙여넣으세요!`);
   } catch (e) {
-    prompt('아래 링크를 복사하세요:', link);
+    prompt('아래 링크를 복사하세요:', finalLink);
   }
+  return finalLink;
+}
+
+// TinyURL로 단축 (실패 시 원본 링크 그대로 사용) — 명단·설정은 암호화된 채로 담겨 있어 경유해도 안전
+async function shortenLink(link) {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
+    const resp = await fetch('https://tinyurl.com/api-create.php?url=' + encodeURIComponent(link), { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (resp.ok) {
+      const short = (await resp.text()).trim();
+      if (/^https:\/\/tinyurl\.com\/[\w-]+$/.test(short)) return short;
+    }
+  } catch (e) { /* 오프라인·차단 — 원본 사용 */ }
   return link;
 }
 
