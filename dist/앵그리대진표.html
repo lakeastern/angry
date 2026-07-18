@@ -58,11 +58,13 @@
   .banner.info { background: #e0f2fe; border: 1px solid #0284c7; color: #075985; }
   .banner ul { margin: 4px 0 0 18px; padding: 0; }
   .bracket-scroll { overflow-x: auto; }
-  table.bracket { width: auto; border-collapse: collapse; margin-bottom: 6px; }
+  table.bracket { width: auto; border-collapse: collapse; margin: 0 auto 6px; } /* 카드 가운데 정렬 */
   table.bracket th, table.bracket td { border: 1px solid var(--border); padding: 7px 10px; font-size: 0.92rem; }
   table.bracket th { background: #f3f4f6; }
-  td.gamecell { white-space: nowrap; } /* 게임은 "팀 vs 팀" 한 줄 — 컬럼이 내용 폭에 맞게 줄어듦 */
+  .tline { white-space: nowrap; } /* 게임은 팀별 두 줄 — 컬럼이 내용 폭에 맞게 줄어듦 */
+  .tline + .tline { margin-top: 3px; }
   .lessonbox { max-width: 300px; }
+  td.emptycourt { text-align: center; color: #c7cdd6; }
   td.roundcell { text-align: center; font-weight: 800; background: #f9fafb; width: 52px; }
   .tok {
     display: inline-block; padding: 3px 9px; border-radius: 6px; margin: 1px;
@@ -71,8 +73,7 @@
   .tok.m { background: var(--men-bg); color: var(--men); }
   .tok.w { background: var(--women-bg); color: var(--women); }
   .tok.sel { border-color: #111; box-shadow: 0 0 0 2px #11182740; }
-  .vs { color: var(--muted); font-weight: 700; margin: 0 6px; font-size: 0.85rem; }
-  .team { white-space: nowrap; display: inline-block; }
+  .vs { color: var(--muted); font-weight: 700; margin: 0 6px 0 1px; font-size: 0.85rem; }
 
   /* 명단 관리 */
   .secsum { cursor: pointer; font-size: 0.95rem; }
@@ -139,7 +140,6 @@
   input[type="number"] { width: 64px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.95rem; }
   @media print {
     body { background: #fff; padding: 0; max-width: none; }
-    td.gamecell { white-space: normal; } /* 종이 폭 초과 방지 */
     .no-print { display: none !important; }
     section.card { border: 0; padding: 4px 0; margin: 0; }
     table.bracket th, table.bracket td { padding: 5px 6px; }
@@ -681,13 +681,10 @@ function buildPlan(config) {
       });
     }
     R = Math.ceil(T / baseCourts);
-    // 게임 수를 라운드에 최대한 고르게 분배 (마지막에 몰지 않음 → 연속 대기 완화)
-    courtsPerRound = [];
+    // 앞 라운드는 풀코트로 채우고, 비는 코트는 마지막 라운드에 배치
     const q = Math.floor(T / R);
     const rem = T % R;
-    for (let i = 0; i < R; i++) {
-      courtsPerRound.push(q + (Math.floor(((i + 1) * rem) / R) - Math.floor((i * rem) / R)));
-    }
+    courtsPerRound = Array.from({ length: R }, (_, i) => q + (i < rem ? 1 : 0));
   }
 
   // 라운드별 가용 인원·패리티 검사
@@ -1675,8 +1672,8 @@ function renderViewer() {
   const rows = b.rounds
     .map((rd, r) => {
       const cells = rd.games
-        .map((g) => `<td class="gamecell"><span class="team">${g.teams[0].map(tokV).join('')}</span><span class="vs">vs</span><span class="team">${g.teams[1].map(tokV).join('')}</span></td>`)
-        .join('');
+        .map((g) => `<td class="gamecell"><div class="tline">${g.teams[0].map(tokV).join('')}</div><div class="tline"><span class="vs">vs</span>${g.teams[1].map(tokV).join('')}</div></td>`)
+        .join('') + '<td class="emptycourt">—</td>'.repeat(maxCourts - rd.games.length);
       const lesson = rd.lesson.map(tokV).join('') || '<span class="lessonlabel">—</span>';
       const excl = rd.excluded && rd.excluded.length
         ? `<div style="margin-top:3px"><span class="lessonlabel">불참: ${rd.excluded.map((id) => esc(nameV(id))).join(', ')}</span></div>` : '';
@@ -1890,14 +1887,15 @@ function renderResult() {
   }
 
   const isReg = res.type === 'regular';
+  const maxCourtsAll = Math.max(...res.rounds.map((rd) => rd.games.length));
   const roundsHtml = res.rounds
     .map((rd, r) => {
       const gameCells = rd.games
         .map((g, gi) => {
-          const team = (ti) => `<span class="team">${g.teams[ti].map((id, si) => tok(id, r, `g:${gi}:${ti}:${si}`)).join('')}</span>`;
-          return `<td class="gamecell">${team(0)}<span class="vs">vs</span>${team(1)}</td>`;
+          const team = (ti) => g.teams[ti].map((id, si) => tok(id, r, `g:${gi}:${ti}:${si}`)).join('');
+          return `<td class="gamecell"><div class="tline">${team(0)}</div><div class="tline"><span class="vs">vs</span>${team(1)}</div></td>`;
         })
-        .join('');
+        .join('') + '<td class="emptycourt">—</td>'.repeat(maxCourtsAll - rd.games.length);
       const lessonToks = rd.lesson.map((id, li) => tok(id, r, `l:${li}`)).join('') || '<span class="lessonlabel">—</span>';
       const excludedTxt = rd.excluded.length
         ? `<div style="margin-top:3px"><span class="lessonlabel">불참: ${rd.excluded.map((id) => esc(nameOf(id))).join(', ')}</span></div>`

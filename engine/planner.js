@@ -133,13 +133,10 @@ export function buildPlan(config) {
       });
     }
     R = Math.ceil(T / baseCourts);
-    // 게임 수를 라운드에 최대한 고르게 분배 (마지막에 몰지 않음 → 연속 대기 완화)
-    courtsPerRound = [];
+    // 앞 라운드는 풀코트로 채우고, 비는 코트는 마지막 라운드에 배치
     const q = Math.floor(T / R);
     const rem = T % R;
-    for (let i = 0; i < R; i++) {
-      courtsPerRound.push(q + (Math.floor(((i + 1) * rem) / R) - Math.floor((i * rem) / R)));
-    }
+    courtsPerRound = Array.from({ length: R }, (_, i) => q + (i < rem ? 1 : 0));
   }
 
   // 라운드별 가용 인원·패리티 검사

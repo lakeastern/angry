@@ -128,6 +128,17 @@ test('월례 남4 여8, 인당 4게임 — 전원 정확히 4게임 + 인당 혼
   assert.equal(res.stats.mixedUncovered, 0, '전원 혼복 최소 1회');
 });
 
+test('월례 게임 수가 라운드에 안 나눠떨어지면 빈 코트는 마지막 라운드로', () => {
+  // 남4 여6 = 10명 × 4게임 = 40슬롯 → 10게임, 2코트 → 5라운드 (딱 떨어짐: [2,2,2,2,2])
+  // 남6 여8 = 14명 × 4게임 = 14게임, 3코트 → 5라운드 → [3,3,3,3,2] (마지막만 부분)
+  const res = generateSchedule({ type: 'monthly', gamesPerPerson: 4, players: mk(6, 8), seed: 5 });
+  const courts = res.plan.courtsPerRound;
+  for (let i = 1; i < courts.length; i++) {
+    assert.ok(courts[i] <= courts[i - 1], `코트 수는 감소만 해야 함: ${courts.join(',')}`);
+  }
+  assert.equal(courts[0], Math.max(...courts), '첫 라운드는 풀코트');
+});
+
 test('월례 남7 여7(14명), 인당 4게임 — 혼복 커버리지 + 게임 수 ±1', () => {
   const res = generateSchedule({ type: 'monthly', gamesPerPerson: 4, players: mk(7, 7), seed: 3 });
   assert.deepEqual(res.errors, []);

@@ -300,8 +300,8 @@ function renderViewer() {
   const rows = b.rounds
     .map((rd, r) => {
       const cells = rd.games
-        .map((g) => `<td class="gamecell"><span class="team">${g.teams[0].map(tokV).join('')}</span><span class="vs">vs</span><span class="team">${g.teams[1].map(tokV).join('')}</span></td>`)
-        .join('');
+        .map((g) => `<td class="gamecell"><div class="tline">${g.teams[0].map(tokV).join('')}</div><div class="tline"><span class="vs">vs</span>${g.teams[1].map(tokV).join('')}</div></td>`)
+        .join('') + '<td class="emptycourt">—</td>'.repeat(maxCourts - rd.games.length);
       const lesson = rd.lesson.map(tokV).join('') || '<span class="lessonlabel">—</span>';
       const excl = rd.excluded && rd.excluded.length
         ? `<div style="margin-top:3px"><span class="lessonlabel">불참: ${rd.excluded.map((id) => esc(nameV(id))).join(', ')}</span></div>` : '';
@@ -515,14 +515,15 @@ function renderResult() {
   }
 
   const isReg = res.type === 'regular';
+  const maxCourtsAll = Math.max(...res.rounds.map((rd) => rd.games.length));
   const roundsHtml = res.rounds
     .map((rd, r) => {
       const gameCells = rd.games
         .map((g, gi) => {
-          const team = (ti) => `<span class="team">${g.teams[ti].map((id, si) => tok(id, r, `g:${gi}:${ti}:${si}`)).join('')}</span>`;
-          return `<td class="gamecell">${team(0)}<span class="vs">vs</span>${team(1)}</td>`;
+          const team = (ti) => g.teams[ti].map((id, si) => tok(id, r, `g:${gi}:${ti}:${si}`)).join('');
+          return `<td class="gamecell"><div class="tline">${team(0)}</div><div class="tline"><span class="vs">vs</span>${team(1)}</div></td>`;
         })
-        .join('');
+        .join('') + '<td class="emptycourt">—</td>'.repeat(maxCourtsAll - rd.games.length);
       const lessonToks = rd.lesson.map((id, li) => tok(id, r, `l:${li}`)).join('') || '<span class="lessonlabel">—</span>';
       const excludedTxt = rd.excluded.length
         ? `<div style="margin-top:3px"><span class="lessonlabel">불참: ${rd.excluded.map((id) => esc(nameOf(id))).join(', ')}</span></div>`
