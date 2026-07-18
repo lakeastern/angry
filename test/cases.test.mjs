@@ -27,6 +27,15 @@ test('남7 여5 정기 5라운드 — 기준 케이스', () => {
   assert.ok(cOf(1) + cOf(3) >= cOf(0) + cOf(2) + cOf(4), '짝수 라운드 혼복이 홀수 라운드보다 많거나 같아야 함');
 });
 
+test('1·3라운드는 혼복 없이 남복/여복으로 구성 (가능한 인원일 때)', () => {
+  for (const [M, W] of [[7, 5], [6, 6], [8, 6]]) {
+    const res = generateSchedule({ type: 'regular', rounds: 5, players: mk(M, W), seed: 42 });
+    const cOf = (r) => res.rounds[r].games.filter((g) => g.type === 'MX').length;
+    assert.equal(cOf(0), 0, `남${M}여${W}: 1라운드에 혼복이 있으면 안 됨`);
+    assert.equal(cOf(2), 0, `남${M}여${W}: 3라운드에 혼복이 있으면 안 됨`);
+  }
+});
+
 test('빡겜 — 초반 3라운드는 게임 내 실력 폭이 후반보다 좁다', () => {
   const res = generateSchedule({ type: 'regular', rounds: 6, players: mk(8, 8), seed: 21 });
   const spreadOf = (rd) => {

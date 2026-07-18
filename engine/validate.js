@@ -167,16 +167,23 @@ export function computeStats(schedule, plan) {
     }
   }
 
-  // 레슨 로테이션(정기): 3라운드 내 전원 1회 레슨 — 이론적 최소 미달성분만 벌점
+  // 레슨 로테이션(정기): 3라운드 내 전원 1회 레슨.
+  // 결장 슬롯의 성별 구성은 게임 유형 규칙이 결정하므로, 성별별 실제 슬롯 대비 미달성분만 벌점.
   let rotationMiss = 0;
   let rotationMissedIds = [];
   if (schedule.type === 'regular' && R >= 3) {
-    const first3Byes = schedule.rounds.slice(0, 3).reduce((acc, rd) => acc + rd.lesson.length, 0);
-    const needIds = plan.players.filter((p) => [0, 1, 2].some((r) => !p.unavailable.has(r))).map((p) => p.id);
-    const missed = needIds.filter((id) => !per.get(id).sitRounds.some((r) => r < 3));
-    const theoreticalMiss = Math.max(0, needIds.length - first3Byes);
-    rotationMiss = Math.max(0, missed.length - theoreticalMiss);
-    rotationMissedIds = missed;
+    for (const g of ['M', 'W']) {
+      const members = plan.players.filter((p) => p.gender === g && [0, 1, 2].some((r) => !p.unavailable.has(r)));
+      if (!members.length) continue;
+      const sitSlots = schedule.rounds
+        .slice(0, 3)
+        .reduce((acc, rd) => acc + rd.lesson.filter((id) => byId.has(id) && byId.get(id).gender === g).length, 0);
+      const missed = members.filter((p) => !per.get(p.id).sitRounds.some((r) => r < 3));
+      const minMissed = Math.max(0, members.length - sitSlots);
+      const penalty = Math.max(0, missed.length - minMissed);
+      rotationMiss += penalty;
+      if (penalty > 0) rotationMissedIds.push(...missed.map((p) => p.id));
+    }
   }
 
   // 신규회원 레슨 미충족(정기, 레슨 슬롯이 있는 경우만)
@@ -203,12 +210,14 @@ export function computeStats(schedule, plan) {
     }
   }
 
-  // 라운드별 유형 선호: 정기 짝수 라운드는 혼복 우세, 그 외는 동성복식 우세
+  // 라운드별 유형 선호: 정기 짝수 라운드는 혼복 우세, 그 외는 동성복식 우세.
+  // 1·3라운드는 남복/여복 선호가 특히 강함 (가중 2배)
   let typePrefCost = 0;
   schedule.rounds.forEach((rd, r) => {
     const c = rd.games.filter((g) => teamGenderType(g.teams[0], byId) === 'MW').length;
     const C = rd.games.length;
     if (schedule.type === 'regular' && (r + 1) % 2 === 0) typePrefCost += C - c;
+    else if (schedule.type === 'regular' && (r === 0 || r === 2)) typePrefCost += c * 2;
     else typePrefCost += c;
   });
 

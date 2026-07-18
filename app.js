@@ -1,6 +1,7 @@
 // 앵그리 테니스 클럽 대진표 — UI v2 (실명 명단·설정 튜닝·버전 히스토리)
 import { generateSchedule, validateSchedule, SchedulerError } from './engine/scheduler.js';
 import { buildPlan } from './engine/planner.js';
+import { pairKey } from './engine/validate.js';
 
 const K_ROSTER = 'angry-roster-v2';
 const K_SETTINGS = 'angry-settings-v2';
@@ -516,12 +517,52 @@ function renderResult() {
 
   const isReg = res.type === 'regular';
   const maxCourtsAll = Math.max(...res.rounds.map((rd) => rd.games.length));
+
+  // 관리자 화면 전용: 규칙 위반을 셀·선수 단위 아이콘 뱃지로 표시 (경기이사 수동 조정용)
+  const st = res.stats;
+  const maxDiffOpt = res.plan.options ? res.plan.options.maxDiff : null;
+  state._pBadges = new Map(); // `${round}:${id}` → 아이콘 문자열
+  const addPBadge = (r, id, icon) => {
+    const k = r + ':' + id;
+    const cur = state._pBadges.get(k) || '';
+    if (!cur.includes(icon)) state._pBadges.set(k, cur + icon);
+  };
+  st.consecutiveSitList.forEach((cs) => {
+    addPBadge(cs.rounds[0], cs.id, '💤');
+    addPBadge(cs.rounds[1], cs.id, '💤');
+  });
+  st.structural.forEach((s) => {
+    if (s.code === 'E_DUP_ASSIGN' && s.players) s.players.forEach((id) => addPBadge(s.round, id, '⚠️'));
+    if (s.code === 'E_EXCLUDED_ASSIGNED' && s.players) s.players.forEach((id) => addPBadge(s.round, id, '⛔'));
+  });
+  let badgeUsed = state._pBadges.size > 0;
+
   const roundsHtml = res.rounds
     .map((rd, r) => {
       const gameCells = rd.games
         .map((g, gi) => {
           const team = (ti) => g.teams[ti].map((id, si) => tok(id, r, `g:${gi}:${ti}:${si}`)).join('');
-          return `<td class="gamecell"><div class="tline">${team(0)}</div><div class="tline"><span class="vs">vs</span>${team(1)}</div></td>`;
+          // 게임 단위 위반 뱃지
+          const icons = [];
+          const known = (id) => res.plan.byId.has(id);
+          const all = [...g.teams[0], ...g.teams[1]];
+          if (all.every(known)) {
+            const gtype = (t) => t.map((id) => res.plan.byId.get(id).gender).sort().join('');
+            if (gtype(g.teams[0]) !== gtype(g.teams[1])) icons.push('🚫');
+            if (g.teams.some((t) => (st.partnerCount.get(pairKey(t[0], t[1])) || 0) > 1)) icons.push('🔁');
+            let freq = false;
+            for (const x of g.teams[0]) for (const y of g.teams[1]) {
+              if ((st.meetCount.get(pairKey(x, y)) || 0) >= 3) freq = true;
+            }
+            if (freq) icons.push('⚔️');
+            if (maxDiffOpt != null) {
+              const sum = (t) => t.reduce((a, id) => a + res.plan.byId.get(id).score, 0);
+              if (Math.abs(sum(g.teams[0]) - sum(g.teams[1])) > maxDiffOpt) icons.push('📏');
+            }
+          }
+          if (icons.length) badgeUsed = true;
+          const badgeHtml = icons.length ? `<span class="cellbadges" title="규칙 위반 — 아래 범례 참고">${icons.join('')}</span>` : '';
+          return `<td class="gamecell">${badgeHtml}<div class="tline">${team(0)}</div><div class="tline"><span class="vs">vs</span>${team(1)}</div></td>`;
         })
         .join('') + '<td class="emptycourt">—</td>'.repeat(maxCourtsAll - rd.games.length);
       const lessonToks = rd.lesson.map((id, li) => tok(id, r, `l:${li}`)).join('') || '<span class="lessonlabel">—</span>';
@@ -559,6 +600,9 @@ function renderResult() {
       <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
       ${roundsHtml}
     </table></div>
+    ${badgeUsed
+      ? `<div class="badge-legend">위반 표시: 🚫 잡복(남녀 구성 어긋남) · 🔁 파트너 중복 · ⚔️ 같은 상대 3번 이상 · 📏 점수차 상한 초과 · 💤 연속 결장 · ⚠️ 라운드 내 중복 배정 · ⛔ 제외 인원 배정</div>`
+      : ''}
     <div class="hint no-print">선수 이름 두 개를 차례로 누르면 자리를 맞바꿉니다 (라운드·성별 제한 없음 — 규칙에 어긋나면 경고로 알려드립니다).</div>
     <div class="statline">
       파트너 중복 <b>${res.stats.partnerRepeats}</b>회 ·
@@ -575,7 +619,8 @@ function renderResult() {
 function tok(id, round, loc) {
   const g = genderOf(id) === 'M' ? 'm' : 'w';
   const sel = state.swapSel && state.swapSel.round === round && state.swapSel.loc === loc;
-  return `<span class="tok ${g} ${sel ? 'sel' : ''}" data-tok="${id}" data-round="${round}" data-loc="${loc}">${esc(nameOf(id))}</span>`;
+  const pb = state._pBadges && state._pBadges.get(round + ':' + id);
+  return `<span class="tok ${g} ${sel ? 'sel' : ''}" data-tok="${id}" data-round="${round}" data-loc="${loc}">${esc(nameOf(id))}${pb ? `<sup class="vbadge">${pb}</sup>` : ''}</span>`;
 }
 
 // ─── 이벤트 바인딩 ───

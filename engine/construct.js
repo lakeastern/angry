@@ -65,9 +65,11 @@ export function constructSchedule(plan, rng, opts = {}) {
     const defW = deficit(availW);
     const idealM = (4 * C * defM) / (defM + defW || 1);
 
-    // 성별 출전 균형(게임 수 균등, 4순위)이 유형 선호(10순위)보다 우선하도록 가중
+    // 성별 출전 균형(게임 수 균등, 4순위)이 유형 선호(10순위)보다 우선하도록 가중.
+    // 단 정기 1·3라운드는 남복/여복 선호를 강하게 반영 (가능하면 혼복 배제)
+    const typeWeight = plan.type === 'regular' && (r === 0 || r === 2) ? 30 : 12;
     const ranked = comps
-      .map((cp) => ({ cp, s: Math.abs(cp.m - idealM) * 40 + Math.abs(cp.c - cTarget) * 12 + rng.jitter(5) }))
+      .map((cp) => ({ cp, s: Math.abs(cp.m - idealM) * 40 + Math.abs(cp.c - cTarget) * typeWeight + rng.jitter(5) }))
       .sort((a, b) => a.s - b.s)
       .map((o) => o.cp);
 
