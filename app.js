@@ -35,6 +35,8 @@ const state = {
   share: null, // 공유 링크로 열었을 때의 페이로드
   viewerMode: false, // 'b'(대진표 보기) | 'r'(명단 수신 대기) | false
   shareUnlocked: false, // 공유 링크를 관리자 키로 자동 해독했는지
+  undoStack: [], // 수동 스왑 되돌리기용 rounds 스냅샷 (현재 버전 한정)
+  redoStack: [],
 };
 
 // ─── 유틸 ───
@@ -500,6 +502,10 @@ function renderActions() {
       ${state.result && !state.result.fatal ? '<button class="ghost" id="print">🖨 인쇄</button>' : ''}
       ${state.result && !state.result.fatal ? '<button class="ghost" id="share-b">📤 대진표 공유 링크</button>' : ''}
       <button class="ghost" id="share-r">👥 명단만 공유 링크</button>
+      ${state.result && !state.result.fatal
+        ? `<button class="ghost" id="undo" ${state.undoStack.length ? '' : 'disabled'} title="스왑 되돌리기 (Ctrl+Z)">↩ 되돌리기</button>
+           <button class="ghost" id="redo" ${state.redoStack.length ? '' : 'disabled'} title="되돌린 스왑 다시 실행 (Ctrl+Y)">↪ 다시 실행</button>`
+        : ''}
     </div>
     ${state.history.length > 1 ? `<div class="vrow"><span class="hint-inline">버전 비교:</span> ${versions}</div>` : ''}
   </section>`;
@@ -898,6 +904,10 @@ function bindActions() {
   if (shareB) shareB.addEventListener('click', () => makeShareLink('bracket'));
   const shareR = $('#share-r');
   if (shareR) shareR.addEventListener('click', () => makeShareLink('roster'));
+  const undo = $('#undo');
+  if (undo) undo.addEventListener('click', () => undoSwap());
+  const redo = $('#redo');
+  if (redo) redo.addEventListener('click', () => redoSwap());
   document.querySelectorAll('[data-ver]').forEach((el) =>
     el.addEventListener('click', () => viewVersion(+el.dataset.ver))
   );
@@ -946,6 +956,8 @@ function buildConfig(seed) {
 function generate() {
   const config = buildConfig(Math.floor(Math.random() * 1e9));
   state.swapSel = null;
+  state.undoStack = [];
+  state.redoStack = [];
   try {
     const res = generateSchedule(config);
     res.edited = false;
@@ -999,6 +1011,8 @@ function viewVersion(i) {
     };
     state.currentIdx = i;
     state.swapSel = null;
+    state.undoStack = [];
+    state.redoStack = [];
     render();
   } catch (e) {
     toast('이 버전을 불러올 수 없습니다: ' + e.message);
@@ -1021,6 +1035,10 @@ function onTokenClick(el) {
   }
   const firstId = state.swapSel.id;
   const firstRound = state.swapSel.round;
+  // 되돌리기 스냅샷 (스왑 직전 상태)
+  state.undoStack.push(deepClone(state.result.rounds));
+  if (state.undoStack.length > 50) state.undoStack.shift();
+  state.redoStack = [];
   applySwap(state.swapSel, { round, loc });
   state.swapSel = null;
   if (state.result) state.result.edited = true;
@@ -1030,6 +1048,28 @@ function onTokenClick(el) {
   state._justSwapped = new Set([round + ':' + firstId, firstRound + ':' + id]);
   render();
   state._justSwapped = null;
+}
+
+function undoSwap() {
+  if (!state.result || state.result.fatal || !state.undoStack.length) return;
+  state.redoStack.push(deepClone(state.result.rounds));
+  state.result.rounds = state.undoStack.pop();
+  state.result.edited = true;
+  state.swapSel = null;
+  revalidate();
+  syncCurrentVersion();
+  render();
+}
+
+function redoSwap() {
+  if (!state.result || state.result.fatal || !state.redoStack.length) return;
+  state.undoStack.push(deepClone(state.result.rounds));
+  state.result.rounds = state.redoStack.pop();
+  state.result.edited = true;
+  state.swapSel = null;
+  revalidate();
+  syncCurrentVersion();
+  render();
 }
 
 function locRef(rd, loc) {
@@ -1099,5 +1139,18 @@ async function init() {
 // 열려 있는 탭에 공유 링크를 붙여넣는 경우에도 동작하도록
 window.addEventListener('hashchange', () => {
   if (location.hash.startsWith('#d=')) location.reload();
+});
+// 스왑 되돌리기/다시 실행 단축키 (입력창에 타이핑 중일 때는 제외)
+window.addEventListener('keydown', (e) => {
+  if (state.viewerMode || !state.result || state.result.fatal) return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+  if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    undoSwap();
+  } else if ((e.ctrlKey && e.key.toLowerCase() === 'y') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'z')) {
+    e.preventDefault();
+    redoSwap();
+  }
 });
 init();
