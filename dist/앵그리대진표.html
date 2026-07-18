@@ -18,7 +18,7 @@
   body {
     font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
     margin: 0; padding: 16px; background: #f5f6f8; color: #1f2937;
-    max-width: 860px; margin-left: auto; margin-right: auto;
+    max-width: 1080px; margin-left: auto; margin-right: auto;
   }
   h1 { font-size: 1.35rem; margin: 0 0 12px; }
   h2 { font-size: 1.02rem; margin: 0 0 10px; }
@@ -57,9 +57,12 @@
   .banner.warn { background: #fef3c7; border: 1px solid #d97706; color: #92400e; }
   .banner.info { background: #e0f2fe; border: 1px solid #0284c7; color: #075985; }
   .banner ul { margin: 4px 0 0 18px; padding: 0; }
-  table.bracket { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
-  table.bracket th, table.bracket td { border: 1px solid var(--border); padding: 7px 8px; font-size: 0.92rem; }
+  .bracket-scroll { overflow-x: auto; }
+  table.bracket { width: auto; border-collapse: collapse; margin-bottom: 6px; }
+  table.bracket th, table.bracket td { border: 1px solid var(--border); padding: 7px 10px; font-size: 0.92rem; }
   table.bracket th { background: #f3f4f6; }
+  td.gamecell { white-space: nowrap; } /* 게임은 "팀 vs 팀" 한 줄 — 컬럼이 내용 폭에 맞게 줄어듦 */
+  .lessonbox { max-width: 300px; }
   td.roundcell { text-align: center; font-weight: 800; background: #f9fafb; width: 52px; }
   .tok {
     display: inline-block; padding: 3px 9px; border-radius: 6px; margin: 1px;
@@ -136,6 +139,7 @@
   input[type="number"] { width: 64px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.95rem; }
   @media print {
     body { background: #fff; padding: 0; max-width: none; }
+    td.gamecell { white-space: normal; } /* 종이 폭 초과 방지 */
     .no-print { display: none !important; }
     section.card { border: 0; padding: 4px 0; margin: 0; }
     table.bracket th, table.bracket td { padding: 5px 6px; }
@@ -1671,22 +1675,22 @@ function renderViewer() {
   const rows = b.rounds
     .map((rd, r) => {
       const cells = rd.games
-        .map((g) => `<td><span class="team">${g.teams[0].map(tokV).join('')}</span><span class="vs">vs</span><span class="team">${g.teams[1].map(tokV).join('')}</span></td>`)
+        .map((g) => `<td class="gamecell"><span class="team">${g.teams[0].map(tokV).join('')}</span><span class="vs">vs</span><span class="team">${g.teams[1].map(tokV).join('')}</span></td>`)
         .join('');
       const lesson = rd.lesson.map(tokV).join('') || '<span class="lessonlabel">—</span>';
       const excl = rd.excluded && rd.excluded.length
         ? `<div style="margin-top:3px"><span class="lessonlabel">불참: ${rd.excluded.map((id) => esc(nameV(id))).join(', ')}</span></div>` : '';
-      return `<tr><td class="roundcell">${r + 1}R</td>${cells}<td>${lesson}${excl}</td></tr>`;
+      return `<tr><td class="roundcell">${r + 1}R</td>${cells}<td><div class="lessonbox">${lesson}${excl}</div></td></tr>`;
     })
     .join('');
   return `
   <h1>🎾 앵그리 테니스 클럽 대진표</h1>
   <section class="card">
     <h2>${isReg ? '정기모임' : '월례대회'} 대진표 <span class="hint-inline">${p.date ? esc(p.date) : ''} 공유됨</span></h2>
-    <table class="bracket">
+    <div class="bracket-scroll"><table class="bracket">
       <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
       ${rows}
-    </table>
+    </table></div>
     <div class="row no-print" style="margin-top:12px">
       <button class="ghost" id="v-print">🖨 인쇄</button>
       ${state.shareUnlocked
@@ -1891,7 +1895,7 @@ function renderResult() {
       const gameCells = rd.games
         .map((g, gi) => {
           const team = (ti) => `<span class="team">${g.teams[ti].map((id, si) => tok(id, r, `g:${gi}:${ti}:${si}`)).join('')}</span>`;
-          return `<td>${team(0)}<span class="vs">vs</span>${team(1)}</td>`;
+          return `<td class="gamecell">${team(0)}<span class="vs">vs</span>${team(1)}</td>`;
         })
         .join('');
       const lessonToks = rd.lesson.map((id, li) => tok(id, r, `l:${li}`)).join('') || '<span class="lessonlabel">—</span>';
@@ -1901,7 +1905,7 @@ function renderResult() {
       return `<tr>
         <td class="roundcell">${r + 1}R</td>
         ${gameCells}
-        <td>${lessonToks}${excludedTxt}</td>
+        <td><div class="lessonbox">${lessonToks}${excludedTxt}</div></td>
       </tr>`;
     })
     .join('');
@@ -1925,10 +1929,10 @@ function renderResult() {
   <section class="card">
     <h2>${isReg ? '정기모임' : '월례대회'} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span></h2>
     ${banners.join('')}
-    <table class="bracket">
+    <div class="bracket-scroll"><table class="bracket">
       <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
       ${roundsHtml}
-    </table>
+    </table></div>
     <div class="hint no-print">선수 이름 두 개를 차례로 누르면 자리를 맞바꿉니다 (라운드·성별 제한 없음 — 규칙에 어긋나면 경고로 알려드립니다).</div>
     <div class="statline">
       파트너 중복 <b>${res.stats.partnerRepeats}</b>회 ·
@@ -2338,6 +2342,11 @@ async function init() {
   // 명단에서 삭제된 인원이 참석 목록에 남아있지 않도록 정리
   state.attend.selectedIds = state.attend.selectedIds.filter((id) => memberOf(id));
   await handleShareHash();
+  // 앱을 다시 열면 최근 대진표를 바로 보여준다
+  if (!state.viewerMode && !state.result && state.history.length) {
+    viewVersion(0);
+    return;
+  }
   render();
 }
 // 열려 있는 탭에 공유 링크를 붙여넣는 경우에도 동작하도록

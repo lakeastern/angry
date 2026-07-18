@@ -300,22 +300,22 @@ function renderViewer() {
   const rows = b.rounds
     .map((rd, r) => {
       const cells = rd.games
-        .map((g) => `<td><span class="team">${g.teams[0].map(tokV).join('')}</span><span class="vs">vs</span><span class="team">${g.teams[1].map(tokV).join('')}</span></td>`)
+        .map((g) => `<td class="gamecell"><span class="team">${g.teams[0].map(tokV).join('')}</span><span class="vs">vs</span><span class="team">${g.teams[1].map(tokV).join('')}</span></td>`)
         .join('');
       const lesson = rd.lesson.map(tokV).join('') || '<span class="lessonlabel">—</span>';
       const excl = rd.excluded && rd.excluded.length
         ? `<div style="margin-top:3px"><span class="lessonlabel">불참: ${rd.excluded.map((id) => esc(nameV(id))).join(', ')}</span></div>` : '';
-      return `<tr><td class="roundcell">${r + 1}R</td>${cells}<td>${lesson}${excl}</td></tr>`;
+      return `<tr><td class="roundcell">${r + 1}R</td>${cells}<td><div class="lessonbox">${lesson}${excl}</div></td></tr>`;
     })
     .join('');
   return `
   <h1>🎾 앵그리 테니스 클럽 대진표</h1>
   <section class="card">
     <h2>${isReg ? '정기모임' : '월례대회'} 대진표 <span class="hint-inline">${p.date ? esc(p.date) : ''} 공유됨</span></h2>
-    <table class="bracket">
+    <div class="bracket-scroll"><table class="bracket">
       <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
       ${rows}
-    </table>
+    </table></div>
     <div class="row no-print" style="margin-top:12px">
       <button class="ghost" id="v-print">🖨 인쇄</button>
       ${state.shareUnlocked
@@ -520,7 +520,7 @@ function renderResult() {
       const gameCells = rd.games
         .map((g, gi) => {
           const team = (ti) => `<span class="team">${g.teams[ti].map((id, si) => tok(id, r, `g:${gi}:${ti}:${si}`)).join('')}</span>`;
-          return `<td>${team(0)}<span class="vs">vs</span>${team(1)}</td>`;
+          return `<td class="gamecell">${team(0)}<span class="vs">vs</span>${team(1)}</td>`;
         })
         .join('');
       const lessonToks = rd.lesson.map((id, li) => tok(id, r, `l:${li}`)).join('') || '<span class="lessonlabel">—</span>';
@@ -530,7 +530,7 @@ function renderResult() {
       return `<tr>
         <td class="roundcell">${r + 1}R</td>
         ${gameCells}
-        <td>${lessonToks}${excludedTxt}</td>
+        <td><div class="lessonbox">${lessonToks}${excludedTxt}</div></td>
       </tr>`;
     })
     .join('');
@@ -554,10 +554,10 @@ function renderResult() {
   <section class="card">
     <h2>${isReg ? '정기모임' : '월례대회'} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span></h2>
     ${banners.join('')}
-    <table class="bracket">
+    <div class="bracket-scroll"><table class="bracket">
       <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
       ${roundsHtml}
-    </table>
+    </table></div>
     <div class="hint no-print">선수 이름 두 개를 차례로 누르면 자리를 맞바꿉니다 (라운드·성별 제한 없음 — 규칙에 어긋나면 경고로 알려드립니다).</div>
     <div class="statline">
       파트너 중복 <b>${res.stats.partnerRepeats}</b>회 ·
@@ -967,6 +967,11 @@ async function init() {
   // 명단에서 삭제된 인원이 참석 목록에 남아있지 않도록 정리
   state.attend.selectedIds = state.attend.selectedIds.filter((id) => memberOf(id));
   await handleShareHash();
+  // 앱을 다시 열면 최근 대진표를 바로 보여준다
+  if (!state.viewerMode && !state.result && state.history.length) {
+    viewVersion(0);
+    return;
+  }
   render();
 }
 // 열려 있는 탭에 공유 링크를 붙여넣는 경우에도 동작하도록
