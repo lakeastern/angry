@@ -30,7 +30,16 @@ const bundled = ENGINE_FILES.map((f) => {
   return `// ─── ${f} ───\n${stripModuleSyntax(src)}`;
 }).join('\n');
 
-const html = readFileSync(join(root, 'index.html'), 'utf8');
+// 업데이트 일시 스탬프 (index.html 원본에도 반영해 라이브 페이지에서 버전 확인 가능)
+const stamp = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 16);
+const srcPath = join(root, 'index.html');
+const stamped = readFileSync(srcPath, 'utf8').replace(
+  /<span id="bver">[^<]*<\/span>/,
+  `<span id="bver">${stamp}</span>`
+);
+writeFileSync(srcPath, stamped, 'utf8');
+
+const html = stamped;
 const out = html.replace(
   '<script type="module" src="./app.js"></script>',
   `<script>\n'use strict';\n${bundled}\n</script>`

@@ -901,12 +901,11 @@ function bindActions() {
   if (print) print.addEventListener('click', () => window.print());
   const shareB = $('#share-b');
   if (shareB) shareB.addEventListener('click', async () => {
-    // 클릭 시점에 새 탭을 먼저 열어야 팝업 차단을 피할 수 있다 (링크는 준비되면 주입)
-    const tab = window.open('', '_blank');
+    // 복사 먼저(새 탭을 먼저 열면 포커스를 잃어 클립보드 복사가 실패한다), 그 다음 새 탭
     const link = await makeShareLink('bracket');
-    if (tab) {
-      if (link) tab.location = link;
-      else tab.close();
+    if (link) {
+      const tab = window.open(link, '_blank');
+      if (!tab) toast('링크는 복사되었지만 팝업이 차단되어 새 탭을 열지 못했습니다.');
     }
   });
   const shareR = $('#share-r');
