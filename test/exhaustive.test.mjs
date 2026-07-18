@@ -1,16 +1,16 @@
-// 8~18명 남녀 전 조합 × 정기/월례 자동 검증.
-// 성공 시: 하드 제약 위반 0 (파트너 중복은 완화 명시 시에만 허용).
+// 5~18명 남녀 전 조합 × 정기/월례 자동 검증.
+// 성공 시: 하드 제약 위반 0 (파트너 중복·연속 결장은 완화 명시 시에만 허용).
 // 실패 시: 문서화된 SchedulerError(사전 감지된 불가능 케이스)여야 한다.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateSchedule, SchedulerError } from '../engine/scheduler.js';
 
-const MEN = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-const WOMEN = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
-
 function makePlayers(M, W) {
-  return [...MEN.slice(0, M).map((id) => ({ id })), ...WOMEN.slice(0, W).map((id) => ({ id }))];
+  return [
+    ...Array.from({ length: M }, (_, i) => ({ id: `m${i + 1}`, name: `남자${i + 1}`, gender: 'M', score: i + 1 })),
+    ...Array.from({ length: W }, (_, i) => ({ id: `w${i + 1}`, name: `여자${i + 1}`, gender: 'W', score: i + 1 })),
+  ];
 }
 
 // 사전에 알려진 구조적 불가능 케이스
@@ -28,8 +28,8 @@ const HARD_STRUCTURAL = ['E_DUP_ASSIGN', 'E_EXCLUDED_ASSIGNED', 'E_JAPBOK', 'E_B
 const BUDGET = { restarts: 8, iters: 250, polish: 400 };
 
 for (const type of ['regular', 'monthly']) {
-  for (let N = 8; N <= 18; N++) {
-    for (let M = Math.max(0, N - 9); M <= Math.min(9, N); M++) {
+  for (let N = 5; N <= 18; N++) {
+    for (let M = Math.max(0, N - 15); M <= Math.min(12, N); M++) {
       const W = N - M;
       const name = `${type} 남${M} 여${W} (${N}명)`;
       test(name, () => {

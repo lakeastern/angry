@@ -6,6 +6,8 @@ import { enumerateCompositions } from './planner.js';
 
 export function constructSchedule(plan, rng, opts = {}) {
   const { allowPartnerRepeat = false, allowConsecutiveSit = false } = opts;
+  const maxDiff = plan.options ? plan.options.maxDiff : null;
+  const tightRounds = plan.options ? plan.options.tightRounds || 0 : 0;
 
   const games = new Map(); // id → 게임 수
   const sits = new Map(); // id → 결장(레슨/대기) 수
@@ -69,9 +71,12 @@ export function constructSchedule(plan, rng, opts = {}) {
       .sort((a, b) => a.s - b.s)
       .map((o) => o.cp);
 
+    // 빡겜 라운드는 실력 인접 4명 청크 구성을 우선 시도, 실패 시 일반 구성으로 폴백
+    const tight = r < tightRounds;
     let built = null;
     for (const comp of ranked) {
-      built = tryBuildRound(comp);
+      if (tight) built = tryBuildRoundTight(comp);
+      if (!built) built = tryBuildRound(comp);
       if (built) break;
     }
     if (!built) return null;
@@ -151,6 +156,84 @@ export function constructSchedule(plan, rng, opts = {}) {
         return { games: gamesOut, sitters: [...sitM, ...sitW] };
       }
       return null;
+    }
+
+    // 빡겜 구성: 실력순 인접 4명(혼복은 남2+여2)이 한 게임이 되도록 청크 분할
+    function tryBuildRoundTight(comp) {
+      const sitM = pickSitters(availM, availM.length - comp.m);
+      if (!sitM) return null;
+      const sitW = pickSitters(availW, availW.length - comp.w);
+      if (!sitW) return null;
+      const sitIds = new Set([...sitM, ...sitW].map((p) => p.id));
+      const playingM = availM.filter((p) => !sitIds.has(p.id)).sort((a, b) => a.score - b.score);
+      const playingW = availW.filter((p) => !sitIds.has(p.id)).sort((a, b) => a.score - b.score);
+
+      const mmMen = playingM.slice(0, 4 * comp.a);
+      const mxMen = playingM.slice(4 * comp.a);
+      const wwWomen = playingW.slice(0, 4 * comp.b);
+      const mxWomen = playingW.slice(4 * comp.b);
+
+      const games = [];
+      for (let i = 0; i < comp.a; i++) {
+        const g = chunkGameSame(mmMen.slice(4 * i, 4 * i + 4), 'MM');
+        if (!g) return null;
+        games.push(g);
+      }
+      for (let i = 0; i < comp.b; i++) {
+        const g = chunkGameSame(wwWomen.slice(4 * i, 4 * i + 4), 'WW');
+        if (!g) return null;
+        games.push(g);
+      }
+      for (let i = 0; i < comp.c; i++) {
+        const g = chunkGameMixed(mxMen.slice(2 * i, 2 * i + 2), mxWomen.slice(2 * i, 2 * i + 2));
+        if (!g) return null;
+        games.push(g);
+      }
+      return { games, sitters: [...sitM, ...sitW] };
+    }
+
+    function pairFree(x, y) {
+      return allowPartnerRepeat || !partnersUsed.has(pairKey(x.id, y.id));
+    }
+
+    // 실력순 4명 [s1,s2,s3,s4]의 팀 분할 — 합 균형이 좋은 순서(1·4 vs 2·3 우선)로 미사용 페어 조합 선택
+    function chunkGameSame(four, type) {
+      const splits = [
+        [[0, 3], [1, 2]],
+        [[0, 2], [1, 3]],
+        [[0, 1], [2, 3]],
+      ];
+      let best = null;
+      let bestDiff = Infinity;
+      for (const [i1, i2] of splits) {
+        const t1 = i1.map((i) => four[i]);
+        const t2 = i2.map((i) => four[i]);
+        if (!pairFree(t1[0], t1[1]) || !pairFree(t2[0], t2[1])) continue;
+        const diff = Math.abs(t1[0].score + t1[1].score - t2[0].score - t2[1].score);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          best = { type, teams: [t1, t2] };
+        }
+      }
+      return best;
+    }
+
+    function chunkGameMixed(men2, women2) {
+      const splits = [
+        [[men2[0], women2[1]], [men2[1], women2[0]]],
+        [[men2[0], women2[0]], [men2[1], women2[1]]],
+      ];
+      let best = null;
+      let bestDiff = Infinity;
+      for (const [t1, t2] of splits) {
+        if (!pairFree(t1[0], t1[1]) || !pairFree(t2[0], t2[1])) continue;
+        const diff = Math.abs(t1[0].score + t1[1].score - t2[0].score - t2[1].score);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          best = { type: 'MX', teams: [t1, t2] };
+        }
+      }
+      return best;
     }
 
     function pickSitters(pool, count) {
@@ -281,7 +364,9 @@ export function constructSchedule(plan, rng, opts = {}) {
           let meetPen = 0;
           for (const x of A) for (const y of B) meetPen += meets.get(pairKey(x.id, y.id)) || 0;
           const sum = (t) => t[0].score + t[1].score;
-          cost += meetPen * 10 + Math.abs(sum(A) - sum(B));
+          const diff = Math.abs(sum(A) - sum(B));
+          cost += meetPen * 10 + diff;
+          if (maxDiff != null && diff > maxDiff) cost += 500 * (diff - maxDiff); // 점수차 상한 위반은 사실상 배제
           const four = [...A, ...B];
           if (four.some((p) => p.prefs.newMember)) cost += Math.min(...four.map((p) => p.score)) * 0.3;
         }

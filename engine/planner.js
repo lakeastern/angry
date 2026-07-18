@@ -8,27 +8,32 @@ export class SchedulerError extends Error {
   }
 }
 
-const MEN_IDS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-const WOMEN_IDS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+export const DEFAULT_OPTIONS = {
+  maxDiff: null, // 게임 점수차 상한 (null = 제한 없음)
+  tightRounds: 3, // 초반 빡겜(비슷한 실력 4명 한 게임) 라운드 수
+  allowConsecutiveSit: false, // 연속 결장 허용 (설정에 의한 강제 완화)
+  allowPartnerRepeat: false, // 파트너 중복 허용 (설정에 의한 강제 완화)
+  ignoreGender: false, // 성별 구분 없이 편성 (잡복 허용)
+};
 
-// 입력 형식: { id: '1'~'9' | 'A'~'I', prefs?: {gamePriority, newMember, mixedPreferred}, unavailableRounds?: [1-based...] }
-export function normalizePlayer(raw) {
-  const id = String(raw.id).toUpperCase();
-  let gender, score;
-  if (MEN_IDS.includes(id)) {
-    gender = 'M';
-    score = Number(id);
-  } else if (WOMEN_IDS.includes(id)) {
-    gender = 'W';
-    score = id.charCodeAt(0) - 64; // A=1 … I=9
-  } else {
-    throw new SchedulerError(`알 수 없는 선수 번호입니다: ${raw.id} (남자 1~9, 여자 A~I)`);
+// 입력 형식: { id, name, gender:'M'|'W', score(성별 내 실력 순위, 1=최강),
+//             prefs?: {gamePriority,newMember,mixedPreferred}, unavailableRounds?: [1-based...] }
+export function normalizePlayer(raw, ignoreGender) {
+  const name = String(raw.name || '').trim();
+  if (!name) throw new SchedulerError('이름이 비어 있는 참석자가 있습니다.');
+  if (raw.gender !== 'M' && raw.gender !== 'W') {
+    throw new SchedulerError(`${name}의 성별 정보가 잘못되었습니다.`);
+  }
+  const score = Number(raw.score);
+  if (!Number.isFinite(score) || score < 1) {
+    throw new SchedulerError(`${name}의 실력 순위(점수)가 잘못되었습니다: ${raw.score}`);
   }
   return {
-    id,
-    gender,
+    id: String(raw.id),
+    gender: ignoreGender ? 'M' : raw.gender,
+    realGender: raw.gender,
     score,
-    label: (gender === 'M' ? '남' : '여') + id,
+    label: name,
     prefs: {
       gamePriority: !!(raw.prefs && raw.prefs.gamePriority),
       newMember: !!(raw.prefs && raw.prefs.newMember),
@@ -54,13 +59,14 @@ export function enumerateCompositions(courtCount, availM, availW) {
 
 export function buildPlan(config) {
   const type = config.type === 'monthly' ? 'monthly' : 'regular';
+  const options = Object.assign({}, DEFAULT_OPTIONS, config.options || {});
   if (!Array.isArray(config.players) || config.players.length === 0) {
     throw new SchedulerError('참석자 목록이 비어 있습니다.');
   }
 
-  const players = config.players.map(normalizePlayer);
+  const players = config.players.map((p) => normalizePlayer(p, options.ignoreGender));
   const ids = new Set(players.map((p) => p.id));
-  if (ids.size !== players.length) throw new SchedulerError('참석자 번호가 중복되었습니다.');
+  if (ids.size !== players.length) throw new SchedulerError('참석자 id가 중복되었습니다.');
 
   const men = players.filter((p) => p.gender === 'M');
   const women = players.filter((p) => p.gender === 'W');
@@ -68,37 +74,45 @@ export function buildPlan(config) {
   const M = men.length;
   const W = women.length;
 
-  if (N < 8) {
-    throw new SchedulerError(`참석 인원이 ${N}명입니다. 2코트 게임을 위해 최소 8명이 필요합니다.`, [
-      '인원을 8명 이상으로 늘리거나, 8명 미만 모임은 수동으로 진행하세요.',
-    ]);
+  if (N < 5) {
+    throw new SchedulerError(`참석 인원이 ${N}명입니다. 대진표 구성에는 최소 5명이 필요합니다.`);
   }
-  if (N > 18) {
-    throw new SchedulerError(`참석 인원이 ${N}명입니다. 현재 버전은 최대 18명까지 지원합니다.`);
+  if (N > 24) {
+    throw new SchedulerError(`참석 인원이 ${N}명입니다. 현재 버전은 최대 24명까지 지원합니다.`);
   }
   if (M === 1) {
     throw new SchedulerError('남자가 1명이면 어떤 게임(남복 4명, 혼복 2명 필요)도 구성할 수 없습니다.', [
-      '해당 남자 회원을 제외하거나 남자 인원을 2명 이상으로 조정하세요.',
+      '설정에서 "성별 구분 없이 편성"을 켜면 진행할 수 있습니다.',
+      '또는 해당 남자 회원을 제외하거나 남자 인원을 2명 이상으로 조정하세요.',
     ]);
   }
   if (W === 1) {
     throw new SchedulerError('여자가 1명이면 어떤 게임(여복 4명, 혼복 2명 필요)도 구성할 수 없습니다.', [
-      '해당 여자 회원을 제외하거나 여자 인원을 2명 이상으로 조정하세요.',
+      '설정에서 "성별 구분 없이 편성"을 켜면 진행할 수 있습니다.',
+      '또는 해당 여자 회원을 제외하거나 여자 인원을 2명 이상으로 조정하세요.',
     ]);
   }
 
   // 라운드·코트 계획
   let R, courtsPerRound, extraGames = null, gamesPerPerson = null;
   const planWarnings = [];
+  const maxCourts = type === 'regular' ? 2 : 3;
 
   if (type === 'regular') {
     R = Number(config.rounds) || 5;
     if (R < 1 || R > 12) throw new SchedulerError('라운드 수는 1~12 사이여야 합니다.');
-    courtsPerRound = Array(R).fill(2);
+    const C = Math.min(2, Math.floor(N / 4));
+    courtsPerRound = Array(R).fill(C);
+    if (C < 2) {
+      planWarnings.push({
+        code: 'W_COURT_REDUCED',
+        message: `인원이 ${N}명이라 게임 코트를 ${C}개만 운영합니다 (코트당 4명 필요).`,
+      });
+    }
   } else {
     gamesPerPerson = Number(config.gamesPerPerson) || 4;
     if (gamesPerPerson < 1 || gamesPerPerson > 10) throw new SchedulerError('인당 게임 수는 1~10 사이여야 합니다.');
-    const baseCourts = N >= 12 ? 3 : 2;
+    const baseCourts = N >= 12 ? 3 : N >= 8 ? 2 : 1;
     const raw = N * gamesPerPerson;
     let T;
     if (raw % 4 === 0) {
@@ -153,7 +167,7 @@ export function buildPlan(config) {
       throw new SchedulerError(
         `${r + 1}라운드(가용 남${availM}/여${availW}, ${C}코트)에서 남복/여복/혼복만으로는 코트를 채울 수 없습니다.` +
           (avail.length === 4 * C && availM % 2 === 1 ? ' 전원 출전 라운드인데 남자 인원이 홀수라서 발생하는 문제입니다.' : ''),
-        ['인원을 조정하거나(성별 1명 추가/제외), 해당 라운드 제외 인원을 조정하세요.']
+        ['설정에서 "성별 구분 없이 편성"을 켜거나, 인원·제외 라운드를 조정하세요.']
       );
     }
   }
@@ -173,7 +187,7 @@ export function buildPlan(config) {
     }
   }
 
-  // 월례 혼복 커버리지 목표
+  // 월례 혼복 커버리지 목표 (성별 무시 모드에서는 해당 없음)
   let mixedNeedTotal = 0;
   if (type === 'monthly' && M > 0 && W > 0) {
     mixedNeedTotal = Math.max(Math.ceil(M / 2), Math.ceil(W / 2));
@@ -181,6 +195,7 @@ export function buildPlan(config) {
 
   return {
     type,
+    options,
     players,
     byId: new Map(players.map((p) => [p.id, p])),
     men,

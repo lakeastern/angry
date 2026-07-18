@@ -26,6 +26,9 @@ export function computeStats(schedule, plan) {
   const structural = [];
   const gameDiffs = [];
   let scoreDiffSum = 0;
+  const opt = plan.options || {};
+  const tightK = opt.tightRounds || 0;
+  let earlyTightness = 0; // 빡겜 라운드의 게임 내 실력 폭 합
 
   schedule.rounds.forEach((rd, r) => {
     const seen = new Map(); // id → 배정 횟수 (라운드 내 중복 감지)
@@ -76,6 +79,13 @@ export function computeStats(schedule, plan) {
       const diff = Math.abs(sum(t1) - sum(t2));
       gameDiffs.push({ round: r, court: game.court, diff });
       scoreDiffSum += diff;
+      if (r < tightK) {
+        // 남녀 순위는 절대 실력이 다르므로 실력 폭은 성별 내에서만 계산
+        for (const g of ['M', 'W']) {
+          const scores = all.filter((id) => byId.get(id).gender === g).map((id) => byId.get(id).score);
+          if (scores.length > 1) earlyTightness += Math.max(...scores) - Math.min(...scores);
+        }
+      }
     }
 
     for (const id of rd.lesson) {
@@ -234,9 +244,24 @@ export function computeStats(schedule, plan) {
 
   const scoreDiffSq = gameDiffs.reduce((a, g) => a + g.diff * g.diff, 0);
 
+  // 게임 점수차 상한 위반 (설정된 경우)
+  let diffCapViolations = 0;
+  const diffCapList = [];
+  if (opt.maxDiff != null) {
+    for (const g of gameDiffs) {
+      if (g.diff > opt.maxDiff) {
+        diffCapViolations++;
+        diffCapList.push(g);
+      }
+    }
+  }
+
   return {
     perPlayer: per,
     scoreDiffSq,
+    earlyTightness,
+    diffCapViolations,
+    diffCapList,
     partnerCount,
     meetCount,
     structural,
@@ -306,6 +331,13 @@ export function validateSchedule(schedule, plan) {
     warnings.push({
       code: 'W_MIXED_UNCOVERED',
       message: `혼복 게임을 한 번도 하지 못한 인원: ${stats.mixedUncoveredIds.map(label).join(', ')}`,
+    });
+  }
+
+  for (const g of stats.diffCapList) {
+    warnings.push({
+      code: 'W_DIFF_CAP',
+      message: `${g.round + 1}라운드 ${g.court}코트의 점수차(${g.diff})가 설정된 상한(${plan.options.maxDiff})을 넘습니다.`,
     });
   }
 
