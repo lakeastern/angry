@@ -63,7 +63,7 @@
   table.bracket th { background: #f3f4f6; }
   .tline { white-space: nowrap; } /* 게임은 팀별 두 줄 — 컬럼이 내용 폭에 맞게 줄어듦 */
   .tline + .tline { margin-top: 3px; }
-  .lessonbox { max-width: 300px; }
+  .lessonbox { display: grid; grid-template-columns: repeat(4, max-content); gap: 2px 3px; } /* 레슨/대기는 한 줄 최대 4명 */
   td.emptycourt { text-align: center; color: #c7cdd6; }
   td.gamecell { position: relative; }
   .cellbadges { position: absolute; top: 1px; right: 3px; font-size: 0.72rem; letter-spacing: 1px; }
@@ -168,7 +168,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-18 23:50</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-18 23:55</span></div>
 <div id="toast"></div>
 <script>
 'use strict';
