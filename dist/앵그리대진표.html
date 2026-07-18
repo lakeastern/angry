@@ -1377,6 +1377,8 @@ const K_ROSTER = 'angry-roster-v2';
 const K_SETTINGS = 'angry-settings-v2';
 const K_ATTEND = 'angry-attend-v2';
 const K_HISTORY = 'angry-history-v2';
+const K_KEY = 'angry-key-v2'; // 관리자 비밀번호에서 파생한 키 (SHA-256, base64url)
+const PUBLIC_URL = 'https://lakeastern.github.io/angry/';
 
 const state = {
   roster: { men: [], women: [] }, // {id, name, prefs:{gamePriority,newMember,mixedPreferred}, presetExclude:[], guest}
@@ -1398,6 +1400,9 @@ const state = {
   editingId: null,
   dragId: null,
   ui: { roster: null, adv: null, exclude: null }, // details 접힘 상태 (null = 자동)
+  share: null, // 공유 링크로 열었을 때의 페이로드
+  viewerMode: false, // 'b'(대진표 보기) | 'r'(명단 수신 대기) | false
+  shareUnlocked: false, // 공유 링크를 관리자 키로 자동 해독했는지
 };
 
 // ─── 유틸 ───
@@ -1441,6 +1446,157 @@ function persistAll() {
   save(K_HISTORY, state.history);
 }
 
+// ─── 공유 링크: 압축 + 관리자 비밀번호 암호화 ───
+// 대진표(라운드+참가자 이름)는 평문으로 담아 누구나 볼 수 있고,
+// 명단·설정·재생성용 구성은 AES-GCM으로 잠가 비밀번호를 아는 사람만 복원한다.
+const te = new TextEncoder();
+const td = new TextDecoder();
+
+function b64uEncode(bytes) {
+  let s = '';
+  bytes.forEach((b) => (s += String.fromCharCode(b)));
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64uDecode(str) {
+  const s = atob(str.replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(s, (c) => c.charCodeAt(0));
+}
+async function compressBytes(bytes) {
+  if (typeof CompressionStream === 'undefined') return { c: 0, bytes };
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  return { c: 1, bytes: new Uint8Array(await new Response(stream).arrayBuffer()) };
+}
+async function decompressBytes(bytes, c) {
+  if (!c) return bytes;
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+async function digestOfPassword(pw) {
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', te.encode('angry-v2:' + pw)));
+}
+async function keyFromDigest(digB64) {
+  return crypto.subtle.importKey('raw', b64uDecode(digB64), 'AES-GCM', false, ['encrypt', 'decrypt']);
+}
+async function encryptJson(obj, digB64) {
+  const key = await keyFromDigest(digB64);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  // 암호문은 압축이 안 되므로 평문을 먼저 압축한 뒤 암호화한다 (링크 길이 절감)
+  const { c, bytes } = await compressBytes(te.encode(JSON.stringify(obj)));
+  const data = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes));
+  return { i: b64uEncode(iv), d: b64uEncode(data), c };
+}
+async function decryptJson(e, digB64) {
+  const key = await keyFromDigest(digB64);
+  const plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64uDecode(e.i) }, key, b64uDecode(e.d)));
+  return JSON.parse(td.decode(await decompressBytes(plain, e.c)));
+}
+
+async function makeShareLink(kind) {
+  if (!window.isSecureContext || !crypto.subtle) {
+    toast('이 환경에서는 공유 링크 암호화를 사용할 수 없습니다.');
+    return null;
+  }
+  const dig = localStorage.getItem(K_KEY);
+  if (!dig) {
+    toast('먼저 고급 설정에서 관리자 비밀번호를 설정하세요.');
+    state.ui.adv = true;
+    render();
+    return null;
+  }
+  const secret = { roster: state.roster, settings: state.settings };
+  const payload = { v: 1, k: kind === 'bracket' ? 'b' : 'r', date: new Date().toLocaleDateString('ko-KR') };
+  if (kind === 'bracket') {
+    const entry = state.history[state.currentIdx];
+    if (!entry || !state.result || state.result.fatal) {
+      toast('먼저 대진표를 생성하세요.');
+      return null;
+    }
+    const names = {};
+    entry.config.players.forEach((p) => (names[p.id] = [p.name, p.gender]));
+    payload.b = { type: entry.config.type, rounds: state.result.rounds, names };
+    secret.config = entry.config;
+    secret.seed = entry.seed;
+  }
+  payload.e = await encryptJson(secret, dig);
+  const { c, bytes } = await compressBytes(te.encode(JSON.stringify(payload)));
+  const base = location.protocol === 'file:' ? PUBLIC_URL : location.href.split('#')[0];
+  const link = `${base}#d=${c}${b64uEncode(bytes)}`;
+  window.__lastShareLink = link;
+  try {
+    await navigator.clipboard.writeText(link);
+    toast(kind === 'bracket' ? '대진표 공유 링크가 복사되었습니다. 카톡에 붙여넣으세요!' : '명단 공유 링크가 복사되었습니다.');
+  } catch (e) {
+    prompt('아래 링크를 복사하세요:', link);
+  }
+  return link;
+}
+
+// 공유 데이터(복호화된 명단·설정·대진표 구성)를 내 기기에 저장
+function importShared(dec, payload) {
+  if (dec.roster) state.roster = dec.roster;
+  if (dec.settings) state.settings = Object.assign({}, state.settings, dec.settings);
+  state.attend.selectedIds = state.attend.selectedIds.filter((id) => memberOf(id));
+  if (dec.config && payload.b) {
+    const exists = state.history.some((h) => h.seed === dec.seed && JSON.stringify(h.rounds) === JSON.stringify(payload.b.rounds));
+    if (!exists) {
+      state.history.unshift({
+        ts: payload.date || '공유됨',
+        seed: dec.seed,
+        config: dec.config,
+        rounds: deepClone(payload.b.rounds),
+        edited: false,
+        summary: { avgDiff: '-', maxMeet: '-', partnerRepeats: '-' },
+      });
+      if (state.history.length > 10) state.history.length = 10;
+    }
+  }
+  persistAll();
+}
+
+async function handleShareHash() {
+  const m = location.hash.match(/^#d=([01])([A-Za-z0-9_-]+)$/);
+  if (!m) return;
+  try {
+    const bytes = await decompressBytes(b64uDecode(m[2]), +m[1]);
+    const payload = JSON.parse(td.decode(bytes));
+    history.replaceState(null, '', location.pathname + location.search);
+    state.share = payload;
+    state.viewerMode = payload.k === 'b' ? 'b' : 'r';
+    const dig = localStorage.getItem(K_KEY);
+    if (dig) {
+      try {
+        const dec = await decryptJson(payload.e, dig);
+        importShared(dec, payload);
+        state.shareUnlocked = true;
+        if (payload.k === 'r') {
+          state.viewerMode = false;
+          state.share = null;
+          setTimeout(() => toast('공유받은 명단·설정을 불러왔습니다.'), 300);
+        }
+      } catch (e) { /* 키가 달라 해독 실패 — 뷰어로만 표시 */ }
+    }
+  } catch (e) {
+    setTimeout(() => toast('공유 링크를 읽을 수 없습니다.'), 300);
+  }
+}
+
+async function tryUnlock(pw) {
+  if (!pw) return;
+  try {
+    const dig = b64uEncode(await digestOfPassword(pw));
+    const dec = await decryptJson(state.share.e, dig);
+    localStorage.setItem(K_KEY, dig);
+    importShared(dec, state.share);
+    state.viewerMode = false;
+    state.share = null;
+    state.shareUnlocked = false;
+    render();
+    toast('관리자 모드로 전환되었습니다. 명단·설정을 불러왔습니다.');
+  } catch (e) {
+    toast('비밀번호가 올바르지 않습니다.');
+  }
+}
+
 function estimatedRounds() {
   const s = state.settings;
   if (s.meetingType === 'regular') return Math.max(1, Math.min(12, s.rounds));
@@ -1457,6 +1613,11 @@ function effectiveExclude(id) {
 
 // ─── 렌더링 ───
 function render() {
+  if (state.viewerMode) {
+    $('#app').innerHTML = renderViewer();
+    bindViewer();
+    return;
+  }
   $('#app').innerHTML = `
     <h1>🎾 앵그리 테니스 클럽 대진표</h1>
     ${renderRoster()}
@@ -1466,6 +1627,77 @@ function render() {
     ${renderResult()}
   `;
   bindAll();
+}
+
+// 공유 링크로 열었을 때의 보기 전용 화면
+function renderViewer() {
+  const p = state.share;
+  if (state.viewerMode === 'r') {
+    return `
+    <h1>🎾 앵그리 테니스 클럽 대진표</h1>
+    <section class="card">
+      <h2>👥 명단 공유를 받았습니다 ${p.date ? `<span class="hint-inline">(${esc(p.date)})</span>` : ''}</h2>
+      <p style="font-size:0.92rem">클럽 명단·설정이 담긴 링크입니다. 관리자 비밀번호를 입력하면 이 기기에 저장됩니다.</p>
+      <div class="row">
+        <input type="password" id="unlock-pw" placeholder="관리자 비밀번호" style="padding:8px;border:1px solid var(--border);border-radius:6px">
+        <button class="primary" id="unlock-btn">불러오기</button>
+      </div>
+    </section>`;
+  }
+  const b = p.b;
+  const nameV = (id) => (b.names[id] ? b.names[id][0] : id);
+  const gV = (id) => (b.names[id] && b.names[id][1] === 'W' ? 'w' : 'm');
+  const tokV = (id) => `<span class="tok ${gV(id)}" style="cursor:default">${esc(nameV(id))}</span>`;
+  const isReg = b.type === 'regular';
+  const maxCourts = Math.max(...b.rounds.map((rd) => rd.games.length));
+  const courtHeads = Array.from({ length: maxCourts }, (_, i) => `<th>${'abc'[i]}코트</th>`).join('');
+  const rows = b.rounds
+    .map((rd, r) => {
+      const cells = rd.games
+        .map((g) => `<td><span class="team">${g.teams[0].map(tokV).join('')}</span><span class="vs">vs</span><span class="team">${g.teams[1].map(tokV).join('')}</span></td>`)
+        .join('');
+      const lesson = rd.lesson.map(tokV).join('') || '<span class="lessonlabel">—</span>';
+      const excl = rd.excluded && rd.excluded.length
+        ? `<div style="margin-top:3px"><span class="lessonlabel">불참: ${rd.excluded.map((id) => esc(nameV(id))).join(', ')}</span></div>` : '';
+      return `<tr><td class="roundcell">${r + 1}R</td>${cells}<td>${lesson}${excl}</td></tr>`;
+    })
+    .join('');
+  return `
+  <h1>🎾 앵그리 테니스 클럽 대진표</h1>
+  <section class="card">
+    <h2>${isReg ? '정기모임' : '월례대회'} 대진표 <span class="hint-inline">${p.date ? esc(p.date) : ''} 공유됨</span></h2>
+    <table class="bracket">
+      <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
+      ${rows}
+    </table>
+    <div class="row no-print" style="margin-top:12px">
+      <button class="ghost" id="v-print">🖨 인쇄</button>
+      ${state.shareUnlocked
+        ? '<button class="ghost" id="v-admin">⚙ 관리자 화면 열기</button>'
+        : '<button class="ghost" id="v-unlock">🔑 관리자 모드</button>'}
+    </div>
+  </section>`;
+}
+
+function bindViewer() {
+  const pr = $('#v-print');
+  if (pr) pr.addEventListener('click', () => window.print());
+  const adm = $('#v-admin');
+  if (adm) adm.addEventListener('click', () => {
+    state.viewerMode = false;
+    state.share = null;
+    if (state.history.length) viewVersion(0);
+    else render();
+  });
+  const unl = $('#v-unlock');
+  if (unl) unl.addEventListener('click', () => {
+    const pw = prompt('관리자 비밀번호를 입력하세요:');
+    if (pw != null) tryUnlock(pw);
+  });
+  const btn = $('#unlock-btn');
+  if (btn) btn.addEventListener('click', () => tryUnlock($('#unlock-pw').value));
+  const pwIn = $('#unlock-pw');
+  if (pwIn) pwIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryUnlock(pwIn.value); });
 }
 
 function renderRoster() {
@@ -1552,6 +1784,8 @@ function renderSettings() {
         <span class="hint">라운드가 많거나 인원이 적어 같은 파트너가 불가피할 때</span>
         <label><input type="checkbox" id="opt-nogender" ${s.ignoreGender ? 'checked' : ''}> 성별 구분 없이 편성 (잡복 허용)</label>
         <span class="hint">남녀 상관없이 실력 순위만으로 팀 구성 — 극단적 성비일 때 사용</span>
+        <label>관리자 비밀번호 <input type="password" id="opt-pw" placeholder="${localStorage.getItem(K_KEY) ? '설정됨 · 변경하려면 입력' : '미설정'}" style="width:150px"> <button class="ghost mini2" id="pw-save">저장</button></label>
+        <span class="hint">공유 링크 속 명단·설정이 이 비밀번호로 잠깁니다. 명단 수정 권한을 줄 사람(예: 회장)에게만 알려주세요. 변경하면 이전 링크로는 명단을 더 못 불러옵니다.</span>
       </div>
     </details>
   </section>`;
@@ -1607,6 +1841,8 @@ function renderActions() {
       <button class="primary" id="gen">대진표 생성</button>
       ${state.result && !state.result.fatal ? '<button class="ghost" id="regen">🔀 다시 섞기</button>' : ''}
       ${state.result && !state.result.fatal ? '<button class="ghost" id="print">🖨 인쇄</button>' : ''}
+      ${state.result && !state.result.fatal ? '<button class="ghost" id="share-b">📤 대진표 공유 링크</button>' : ''}
+      <button class="ghost" id="share-r">👥 명단만 공유 링크</button>
     </div>
     ${state.history.length > 1 ? `<div class="vrow"><span class="hint-inline">버전 비교:</span> ${versions}</div>` : ''}
   </section>`;
@@ -1860,6 +2096,17 @@ function bindSettings() {
   chk('#opt-consec', 'allowConsecutiveSit');
   chk('#opt-partner', 'allowPartnerRepeat');
   chk('#opt-nogender', 'ignoreGender');
+
+  const pwSave = $('#pw-save');
+  if (pwSave) pwSave.addEventListener('click', async () => {
+    const el = $('#opt-pw');
+    const pw = (el.value || '').trim();
+    if (pw.length < 4) { toast('비밀번호는 4자 이상으로 해주세요.'); return; }
+    localStorage.setItem(K_KEY, b64uEncode(await digestOfPassword(pw)));
+    el.value = '';
+    el.placeholder = '설정됨 · 변경하려면 입력';
+    toast('관리자 비밀번호가 저장되었습니다.');
+  });
 }
 
 function bindAttendance() {
@@ -1892,6 +2139,10 @@ function bindActions() {
   if (regen) regen.addEventListener('click', () => generate());
   const print = $('#print');
   if (print) print.addEventListener('click', () => window.print());
+  const shareB = $('#share-b');
+  if (shareB) shareB.addEventListener('click', () => makeShareLink('bracket'));
+  const shareR = $('#share-r');
+  if (shareR) shareR.addEventListener('click', () => makeShareLink('roster'));
   document.querySelectorAll('[data-ver]').forEach((el) =>
     el.addEventListener('click', () => viewVersion(+el.dataset.ver))
   );
@@ -2062,15 +2313,20 @@ function syncCurrentVersion() {
 }
 
 // ─── 시작 ───
-function init() {
+async function init() {
   state.roster = load(K_ROSTER, state.roster);
   state.settings = Object.assign({}, state.settings, load(K_SETTINGS, {}));
   state.attend = Object.assign({ selectedIds: [], excludeOverrides: {} }, load(K_ATTEND, {}));
   state.history = load(K_HISTORY, []);
   // 명단에서 삭제된 인원이 참석 목록에 남아있지 않도록 정리
   state.attend.selectedIds = state.attend.selectedIds.filter((id) => memberOf(id));
+  await handleShareHash();
   render();
 }
+// 열려 있는 탭에 공유 링크를 붙여넣는 경우에도 동작하도록
+window.addEventListener('hashchange', () => {
+  if (location.hash.startsWith('#d=')) location.reload();
+});
 init();
 
 </script>
