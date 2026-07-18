@@ -140,6 +140,10 @@
     font-size: 0.82rem; cursor: pointer; background: #fff; user-select: none;
   }
   .vchip.on { border-color: var(--accent); background: #ecfdf5; color: #166534; font-weight: 700; }
+
+  /* 공유 링크 보기 전용 페이지 */
+  .vtitle { text-align: center; font-size: 1.3rem; margin: 4px 0 16px; }
+  .viewer-actions { justify-content: center; margin-bottom: 14px; }
   .lessonlabel { color: var(--muted); font-size: 0.85rem; font-weight: 700; }
   .statline { font-size: 0.9rem; color: #374151; margin: 8px 0; }
   .preficon { font-size: 0.75rem; }
@@ -1805,20 +1809,20 @@ function renderViewer() {
     })
     .join('');
   return `
-  <h1>🎾 앵그리 테니스 클럽 대진표</h1>
   <section class="card">
-    <h2>${isReg ? '정기모임' : '월례대회'} 대진표 <span class="hint-inline">${p.date ? esc(p.date) : ''} 공유됨</span></h2>
+    <h1 class="vtitle">🎾 앵그리 테니스 클럽 대진표</h1>
+    <h2>${isReg ? '정기모임' : '월례대회'} 대진표 <span class="hint-inline">${p.date ? esc(p.date) : ''} 작성함</span></h2>
     <div class="bracket-scroll"><table class="bracket">
       <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
       ${rows}
     </table></div>
-    <div class="row no-print" style="margin-top:12px">
-      <button class="ghost" id="v-print">🖨 인쇄</button>
-      ${state.shareUnlocked
-        ? '<button class="ghost" id="v-admin">⚙ 관리자 화면 열기</button>'
-        : '<button class="ghost" id="v-unlock">🔑 관리자 모드</button>'}
-    </div>
-  </section>`;
+  </section>
+  <div class="row no-print viewer-actions">
+    <button class="ghost" id="v-print">🖨 인쇄</button>
+    ${state.shareUnlocked
+      ? '<button class="ghost" id="v-admin">⚙ 관리자 화면 열기</button>'
+      : '<button class="ghost" id="v-unlock">🔑 관리자 모드</button>'}
+  </div>`;
 }
 
 function bindViewer() {
@@ -1992,7 +1996,6 @@ function renderActions() {
   <section class="card no-print">
     <div class="row">
       <button class="primary" id="gen">대진표 생성</button>
-      ${state.result && !state.result.fatal ? '<button class="ghost" id="regen">🔀 다시 섞기</button>' : ''}
       ${state.result && !state.result.fatal ? '<button class="ghost" id="print">🖨 인쇄</button>' : ''}
       ${state.result && !state.result.fatal ? '<button class="ghost" id="share-b">📤 대진표 공유 링크</button>' : ''}
       <button class="ghost" id="share-r">👥 명단만 공유 링크</button>
@@ -2390,12 +2393,18 @@ function bindAttendance() {
 function bindActions() {
   const gen = $('#gen');
   if (gen) gen.addEventListener('click', () => generate());
-  const regen = $('#regen');
-  if (regen) regen.addEventListener('click', () => generate());
   const print = $('#print');
   if (print) print.addEventListener('click', () => window.print());
   const shareB = $('#share-b');
-  if (shareB) shareB.addEventListener('click', () => makeShareLink('bracket'));
+  if (shareB) shareB.addEventListener('click', async () => {
+    // 클릭 시점에 새 탭을 먼저 열어야 팝업 차단을 피할 수 있다 (링크는 준비되면 주입)
+    const tab = window.open('', '_blank');
+    const link = await makeShareLink('bracket');
+    if (tab) {
+      if (link) tab.location = link;
+      else tab.close();
+    }
+  });
   const shareR = $('#share-r');
   if (shareR) shareR.addEventListener('click', () => makeShareLink('roster'));
   const undo = $('#undo');
