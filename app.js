@@ -660,8 +660,10 @@ function tok(id, round, loc) {
   // 기본은 무채색(검정) — 파트너 중복 팀만 성별 색으로 강조
   const dup = state._dupTeam && state._dupTeam.has(round + ':' + id) && loc.startsWith('g');
   const g = dup ? (genderOf(id) === 'M' ? 'm' : 'w') : '';
+  const sel = state.swapSel && state.swapSel.round === round && state.swapSel.loc === loc;
+  const swapped = state._justSwapped && state._justSwapped.has(round + ':' + id);
   const pb = state._pBadges && state._pBadges.get(round + ':' + id);
-  return `<span class="tok ${g}" data-tok="${id}" data-round="${round}" data-loc="${loc}">${esc(nameOf(id))}${pb ? `<sup class="vbadge">${pb}</sup>` : ''}</span>`;
+  return `<span class="tok ${g} ${sel ? 'sel' : ''} ${swapped ? 'swapped' : ''}" data-tok="${id}" data-round="${round}" data-loc="${loc}">${esc(nameOf(id))}${pb ? `<sup class="vbadge">${pb}</sup>` : ''}</span>`;
 }
 
 // ─── 이벤트 바인딩 ───
@@ -1008,12 +1010,17 @@ function onTokenClick(el) {
     render();
     return;
   }
+  const firstId = state.swapSel.id;
+  const firstRound = state.swapSel.round;
   applySwap(state.swapSel, { round, loc });
   state.swapSel = null;
   if (state.result) state.result.edited = true;
   revalidate();
   syncCurrentVersion();
+  // 스왑된 두 사람의 새 위치를 잠시 음영 표시 (CSS 애니메이션으로 서서히 투명)
+  state._justSwapped = new Set([round + ':' + firstId, firstRound + ':' + id]);
   render();
+  state._justSwapped = null;
 }
 
 function locRef(rd, loc) {
