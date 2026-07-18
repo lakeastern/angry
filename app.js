@@ -630,7 +630,7 @@ function renderResult() {
   const legendHtml = legendItems.length ? `<div class="badge-legend">위반 표시: ${legendItems.join(' · ')}</div>` : '';
 
   return `
-  <section class="card result">
+  <section class="card">
     <h2>${isReg ? '정기모임' : '월례대회'} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span></h2>
     <div class="result-cols">
       <div class="bracket-col">

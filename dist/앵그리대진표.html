@@ -18,16 +18,14 @@
   body {
     font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
     margin: 0; padding: 16px; background: #f5f6f8; color: #1f2937;
-    max-width: 1400px; margin-left: auto; margin-right: auto;
+    max-width: 1080px; margin-left: auto; margin-right: auto;
   }
   h1 { font-size: 1.35rem; margin: 0 0 12px; }
   h2 { font-size: 1.02rem; margin: 0 0 10px; }
   section.card {
     background: #fff; border: 1px solid var(--border); border-radius: 10px;
     padding: 14px 16px; margin-bottom: 14px;
-    max-width: 1080px; margin-left: auto; margin-right: auto;
   }
-  section.card.result { max-width: 1400px; } /* 대진표 + 오른쪽 참고 배너 공간 */
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
   .chip {
@@ -2063,7 +2061,7 @@ function renderResult() {
   const legendHtml = legendItems.length ? `<div class="badge-legend">위반 표시: ${legendItems.join(' · ')}</div>` : '';
 
   return `
-  <section class="card result">
+  <section class="card">
     <h2>${isReg ? '정기모임' : '월례대회'} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span></h2>
     <div class="result-cols">
       <div class="bracket-col">
