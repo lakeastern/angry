@@ -24,6 +24,19 @@ export function constructSchedule(plan, rng, opts = {}) {
     mixed.set(p.id, 0);
   }
 
+  // 2라운드 상위 랭커: 참석자(2라운드 가용자) 기준 성별 상대 순위 top-4
+  // (명단 절대 순위가 아님 — 상위권 일부가 불참해도 참석자 중 상위 4명으로 적용)
+  const top4 = new Set();
+  if (plan.type === 'regular' && plan.R >= 2) {
+    for (const pool of [plan.men, plan.women]) {
+      pool
+        .filter((p) => !p.unavailable.has(1))
+        .sort((a, b) => a.score - b.score)
+        .slice(0, 4)
+        .forEach((p) => top4.add(p.id));
+    }
+  }
+
   const rounds = [];
 
   for (let r = 0; r < plan.R; r++) {
@@ -270,10 +283,10 @@ export function constructSchedule(plan, rng, opts = {}) {
       if (plan.type === 'regular' && r < 3 && !lessoned.has(p.id)) s += 30;
       if (plan.type === 'regular' && p.prefs.newMember && sits.get(p.id) === 0) s += 20;
       if (p.prefs.gamePriority) s -= 35;
-      if (topRankRound && p.score <= 4) s -= 60;
+      if (topRankRound && top4.has(p.id)) s -= 60;
       // 1라운드 선행 배치: 상위 랭커는 1라운드에 결장(레슨)해 두면
       // 연속 결장 금지에 의해 2라운드 출전이 보장된다
-      if (plan.type === 'regular' && r === 0 && plan.R >= 2 && p.score <= 4) s += 40;
+      if (plan.type === 'regular' && r === 0 && plan.R >= 2 && top4.has(p.id)) s += 40;
       s += rng.jitter(8);
       return s;
     }
@@ -284,7 +297,7 @@ export function constructSchedule(plan, rng, opts = {}) {
       let s = 0;
       if (plan.type === 'monthly' && mixed.get(p.id) === 0) s += 50;
       if (plan.type === 'regular' && p.prefs.mixedPreferred) s += 50;
-      if (topRankRound && p.score <= 4) s -= 80;
+      if (topRankRound && top4.has(p.id)) s -= 80;
       s += rng.jitter(20);
       return s;
     }

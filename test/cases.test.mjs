@@ -65,6 +65,20 @@ test('코트 배정 다양화 — 남복이 한 코트에만 몰리지 않음', 
   assert.ok(mmCourts.size >= 2, `남복 코트 분포가 ${[...mmCourts].join(',')}뿐 — 2개 이상이어야 함`);
 });
 
+test('2라운드 상위 랭커는 참석자 기준 상대 순위 top-4 (상위권 불참 시)', () => {
+  // 남자 2위, 여자 2·5위 불참 상황 — 참석자 중 상위 4명이 2라운드 동성복식에 나와야 함
+  const men = [1, 3, 4, 5, 6, 7, 8].map((s) => ({ id: `m${s}`, name: `남${s}`, gender: 'M', score: s }));
+  const women = [1, 3, 4, 6, 7, 8, 9].map((s) => ({ id: `w${s}`, name: `여${s}`, gender: 'W', score: s }));
+  const res = generateSchedule({ type: 'regular', rounds: 5, players: [...men, ...women], seed: 42 });
+  const r2 = res.rounds[1];
+  const mm = r2.games.find((g) => g.type === 'MM');
+  const ww = r2.games.find((g) => g.type === 'WW');
+  assert.ok(mm && ww, '2라운드에 남복·여복이 있어야 함');
+  assert.deepEqual([...mm.teams[0], ...mm.teams[1]].sort(), ['m1', 'm3', 'm4', 'm5']);
+  assert.deepEqual([...ww.teams[0], ...ww.teams[1]].sort(), ['w1', 'w3', 'w4', 'w6']);
+  assert.equal(res.stats.topRankMiss, 0);
+});
+
 test('빡겜 — 초반 3라운드는 게임 내 실력 폭이 후반보다 좁다', () => {
   const res = generateSchedule({ type: 'regular', rounds: 6, players: mk(8, 8), seed: 21 });
   const spreadOf = (rd) => {

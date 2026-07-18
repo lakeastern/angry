@@ -242,12 +242,15 @@ export function computeStats(schedule, plan) {
     }
   }
 
-  // 2라운드 상위 랭커(1~4위) 동성복식 우선 규칙(정기): 미편성 인원 수
+  // 2라운드 상위 랭커 동성복식 우선 규칙(정기): 참석자 기준 상대 순위 top-4의 미편성 인원 수
   let topRankMiss = 0;
   if (schedule.type === 'regular' && schedule.rounds.length >= 2) {
     const rd2 = schedule.rounds[1];
     for (const g of ['M', 'W']) {
-      const tops = plan.players.filter((p) => p.gender === g && p.score <= 4 && !p.unavailable.has(1));
+      const tops = plan.players
+        .filter((p) => p.gender === g && !p.unavailable.has(1))
+        .sort((a, b) => a.score - b.score)
+        .slice(0, 4);
       if (tops.length < 4) continue; // 동성복식 한 게임(4명)을 채울 수 없으면 규칙 미적용
       for (const p of tops) {
         const inSameGender = rd2.games.some((game) => {

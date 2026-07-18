@@ -448,12 +448,15 @@ function computeStats(schedule, plan) {
     }
   }
 
-  // 2라운드 상위 랭커(1~4위) 동성복식 우선 규칙(정기): 미편성 인원 수
+  // 2라운드 상위 랭커 동성복식 우선 규칙(정기): 참석자 기준 상대 순위 top-4의 미편성 인원 수
   let topRankMiss = 0;
   if (schedule.type === 'regular' && schedule.rounds.length >= 2) {
     const rd2 = schedule.rounds[1];
     for (const g of ['M', 'W']) {
-      const tops = plan.players.filter((p) => p.gender === g && p.score <= 4 && !p.unavailable.has(1));
+      const tops = plan.players
+        .filter((p) => p.gender === g && !p.unavailable.has(1))
+        .sort((a, b) => a.score - b.score)
+        .slice(0, 4);
       if (tops.length < 4) continue; // 동성복식 한 게임(4명)을 채울 수 없으면 규칙 미적용
       for (const p of tops) {
         const inSameGender = rd2.games.some((game) => {
@@ -869,6 +872,19 @@ function constructSchedule(plan, rng, opts = {}) {
     mixed.set(p.id, 0);
   }
 
+  // 2라운드 상위 랭커: 참석자(2라운드 가용자) 기준 성별 상대 순위 top-4
+  // (명단 절대 순위가 아님 — 상위권 일부가 불참해도 참석자 중 상위 4명으로 적용)
+  const top4 = new Set();
+  if (plan.type === 'regular' && plan.R >= 2) {
+    for (const pool of [plan.men, plan.women]) {
+      pool
+        .filter((p) => !p.unavailable.has(1))
+        .sort((a, b) => a.score - b.score)
+        .slice(0, 4)
+        .forEach((p) => top4.add(p.id));
+    }
+  }
+
   const rounds = [];
 
   for (let r = 0; r < plan.R; r++) {
@@ -1115,10 +1131,10 @@ function constructSchedule(plan, rng, opts = {}) {
       if (plan.type === 'regular' && r < 3 && !lessoned.has(p.id)) s += 30;
       if (plan.type === 'regular' && p.prefs.newMember && sits.get(p.id) === 0) s += 20;
       if (p.prefs.gamePriority) s -= 35;
-      if (topRankRound && p.score <= 4) s -= 60;
+      if (topRankRound && top4.has(p.id)) s -= 60;
       // 1라운드 선행 배치: 상위 랭커는 1라운드에 결장(레슨)해 두면
       // 연속 결장 금지에 의해 2라운드 출전이 보장된다
-      if (plan.type === 'regular' && r === 0 && plan.R >= 2 && p.score <= 4) s += 40;
+      if (plan.type === 'regular' && r === 0 && plan.R >= 2 && top4.has(p.id)) s += 40;
       s += rng.jitter(8);
       return s;
     }
@@ -1129,7 +1145,7 @@ function constructSchedule(plan, rng, opts = {}) {
       let s = 0;
       if (plan.type === 'monthly' && mixed.get(p.id) === 0) s += 50;
       if (plan.type === 'regular' && p.prefs.mixedPreferred) s += 50;
-      if (topRankRound && p.score <= 4) s -= 80;
+      if (topRankRound && top4.has(p.id)) s -= 80;
       s += rng.jitter(20);
       return s;
     }
@@ -1272,10 +1288,11 @@ function costOf(schedule, plan) {
   return [
     st.structural.length * 10 + st.partnerRepeats, // 하드 (항상 0이어야 함)
     st.consecutiveSits * 2 + st.spreadPenalty * 2, // 준하드: 연속 결장 + 게임 수 편차
-    st.diffCapViolations + st.meetCapViolations, // 점수차·같은 상대 상한(설정) 위반 — 준하드보다는 낮게
+    st.topRankMiss, // 2라운드 상위 랭커(참석자 기준 top-4) 동성복식 보장
+    st.diffCapViolations + st.meetCapViolations, // 점수차·같은 상대 상한(설정) 위반
     st.rotationMiss + st.newMemberLessonMiss, // 레슨 로테이션(정기)
     st.mixedUncovered, // 월례 인당 혼복 1회
-    st.earlyTightness + st.topRankMiss * 10, // 빡겜(실력 폭 최소화) + 2라운드 상위 랭커 동성복식 우선
+    st.earlyTightness, // 빡겜: 같은 게임 4인의 실력 폭 최소화
     // 상대 중복(5순위)과 점수 균형(6순위)은 인접 계층이라 가중 합산으로 묶는다.
     // 사전식으로 완전 분리하면 재대면 1회를 피하려고 점수차 7짜리 게임을 만드는 왜곡이 생긴다.
     st.opponentPenalty * 8 + st.scoreDiffSq,

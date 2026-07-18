@@ -8,10 +8,11 @@ export function costOf(schedule, plan) {
   return [
     st.structural.length * 10 + st.partnerRepeats, // 하드 (항상 0이어야 함)
     st.consecutiveSits * 2 + st.spreadPenalty * 2, // 준하드: 연속 결장 + 게임 수 편차
-    st.diffCapViolations + st.meetCapViolations, // 점수차·같은 상대 상한(설정) 위반 — 준하드보다는 낮게
+    st.topRankMiss, // 2라운드 상위 랭커(참석자 기준 top-4) 동성복식 보장
+    st.diffCapViolations + st.meetCapViolations, // 점수차·같은 상대 상한(설정) 위반
     st.rotationMiss + st.newMemberLessonMiss, // 레슨 로테이션(정기)
     st.mixedUncovered, // 월례 인당 혼복 1회
-    st.earlyTightness + st.topRankMiss * 10, // 빡겜(실력 폭 최소화) + 2라운드 상위 랭커 동성복식 우선
+    st.earlyTightness, // 빡겜: 같은 게임 4인의 실력 폭 최소화
     // 상대 중복(5순위)과 점수 균형(6순위)은 인접 계층이라 가중 합산으로 묶는다.
     // 사전식으로 완전 분리하면 재대면 1회를 피하려고 점수차 7짜리 게임을 만드는 왜곡이 생긴다.
     st.opponentPenalty * 8 + st.scoreDiffSq,
