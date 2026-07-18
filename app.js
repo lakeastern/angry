@@ -17,7 +17,9 @@ const state = {
     rounds: 5,
     gamesPerPerson: 4,
     maxDiff: null,
+    maxMeet: 2,
     tightRounds: 3,
+    mixedRounds: [2, 4],
     allowConsecutiveSit: false,
     allowPartnerRepeat: false,
     ignoreGender: false,
@@ -293,8 +295,7 @@ function renderViewer() {
   }
   const b = p.b;
   const nameV = (id) => (b.names[id] ? b.names[id][0] : id);
-  const gV = (id) => (b.names[id] && b.names[id][1] === 'W' ? 'w' : 'm');
-  const tokV = (id) => `<span class="tok ${gV(id)}" style="cursor:default">${esc(nameV(id))}</span>`;
+  const tokV = (id) => `<span class="tok" style="cursor:default">${esc(nameV(id))}</span>`;
   const isReg = b.type === 'regular';
   const maxCourts = Math.max(...b.rounds.map((rd) => rd.games.length));
   const courtHeads = Array.from({ length: maxCourts }, (_, i) => `<th>${'abc'[i]}코트</th>`).join('');
@@ -303,10 +304,8 @@ function renderViewer() {
       const cells = rd.games
         .map((g) => `<td class="gamecell"><div class="tline">${g.teams[0].map(tokV).join('')}</div><div class="tline"><span class="vs">vs</span>${g.teams[1].map(tokV).join('')}</div></td>`)
         .join('') + '<td class="emptycourt">—</td>'.repeat(maxCourts - rd.games.length);
-      const lesson = rd.lesson.map(tokV).join('') || '<span class="lessonlabel">—</span>';
-      const excl = rd.excluded && rd.excluded.length
-        ? `<div style="margin-top:3px"><span class="lessonlabel">불참: ${rd.excluded.map((id) => esc(nameV(id))).join(', ')}</span></div>` : '';
-      return `<tr><td class="roundcell">${r + 1}R</td>${cells}<td><div class="lessonbox">${lesson}${excl}</div></td></tr>`;
+      const lesson = rd.lesson.map(tokV).join('') + (rd.excluded || []).map(tokV).join('') || '<span class="lessonlabel">—</span>';
+      return `<tr><td class="roundcell">${r + 1}R</td>${cells}<td><div class="lessonbox">${lesson}</div></td></tr>`;
     })
     .join('');
   return `
@@ -404,8 +403,13 @@ function renderSettings() {
   const s = state.settings;
   const diffOpts = [['', '제한 없음'], ['1', '1점'], ['2', '2점'], ['3', '3점'], ['4', '4점'], ['5', '5점']]
     .map(([v, t]) => `<option value="${v}" ${String(s.maxDiff ?? '') === v ? 'selected' : ''}>${t}</option>`).join('');
+  const meetOpts = [['', '제한 없음'], ['1', '1번'], ['2', '2번'], ['3', '3번'], ['4', '4번']]
+    .map(([v, t]) => `<option value="${v}" ${String(s.maxMeet ?? '') === v ? 'selected' : ''}>${t}</option>`).join('');
   const tightOpts = [0, 1, 2, 3, 4, 5]
     .map((v) => `<option value="${v}" ${s.tightRounds === v ? 'selected' : ''}>${v === 0 ? '끄기' : v + '라운드'}</option>`).join('');
+  const mixedChips = Array.from({ length: Math.max(1, Math.min(12, s.rounds)) }, (_, i) => i + 1)
+    .map((n) => `<span class="xr ${(s.mixedRounds || []).includes(n) ? 'on' : ''}" data-mxr="${n}">${n}</span>`)
+    .join('');
   return `
   <section class="card no-print">
     <h2>② 모임 설정</h2>
@@ -423,6 +427,10 @@ function renderSettings() {
       <div class="advgrid">
         <label>게임 점수차 상한 <select id="opt-maxdiff">${diffOpts}</select></label>
         <span class="hint">한 게임의 두 팀 합산 점수 차이를 이 값 이하로 제한</span>
+        <label>같은 상대 상한 <select id="opt-maxmeet">${meetOpts}</select></label>
+        <span class="hint">같은 상대와 만나는 횟수를 이 값 이하로 제한 (기본 2번)</span>
+        <label>혼복 선호 라운드 <span style="display:inline-block;vertical-align:middle">${mixedChips}</span></label>
+        <span class="hint">선택한 라운드는 혼복 위주, 나머지는 남복/여복 위주 (정기모임 전용, 기본 2·4)</span>
         <label>초반 빡겜 라운드 <select id="opt-tight">${tightOpts}</select></label>
         <span class="hint">초반 라운드는 비슷한 실력끼리 한 게임에 배정 (팀은 균형 분할)</span>
         <label><input type="checkbox" id="opt-consec" ${s.allowConsecutiveSit ? 'checked' : ''}> 연속 결장(레슨/대기) 허용</label>
@@ -504,28 +512,33 @@ function renderResult() {
     </div></section>`;
   }
 
-  const banners = [];
-  if (res.errors.length) {
-    banners.push(`<div class="banner error"><b>규칙 위반 ${res.errors.length}건</b><ul>${res.errors.map((e) => `<li>${esc(e.message)}</li>`).join('')}</ul></div>`);
-  }
-  if (res.relaxationsApplied.length) {
-    banners.push(`<div class="banner info"><b>자동 완화 적용</b><ul>${res.relaxationsApplied.map((m) => `<li>${esc(m)}</li>`).join('')}</ul></div>`);
-  }
-  if (res.warnings.length) {
-    banners.push(`<div class="banner warn"><b>참고</b><ul>${res.warnings.map((w) => `<li>${esc(w.message)}</li>`).join('')}</ul></div>`);
-  }
+  // 위반·완화 배너는 대진표 아래, 참고 배너는 넓은 화면에서 대진표 오른쪽(좁으면 아래)
+  const errHtml = res.errors.length
+    ? `<div class="banner error"><b>규칙 위반 ${res.errors.length}건</b><ul>${res.errors.map((e) => `<li>${esc(e.message)}</li>`).join('')}</ul></div>`
+    : '';
+  const relaxHtml = res.relaxationsApplied.length
+    ? `<div class="banner info"><b>자동 완화 적용</b><ul>${res.relaxationsApplied.map((m) => `<li>${esc(m)}</li>`).join('')}</ul></div>`
+    : '';
+  const warnHtml = res.warnings.length
+    ? `<div class="banner warn"><b>참고</b><ul>${res.warnings.map((w) => `<li>${esc(w.message)}</li>`).join('')}</ul></div>`
+    : '';
 
   const isReg = res.type === 'regular';
   const maxCourtsAll = Math.max(...res.rounds.map((rd) => rd.games.length));
 
-  // 관리자 화면 전용: 규칙 위반을 셀·선수 단위 아이콘 뱃지로 표시 (경기이사 수동 조정용)
+  // 관리자 화면 전용: 규칙 위반을 셀·선수 단위 표시 (경기이사 수동 조정용)
+  // 잡복은 vs 색(핫핑크), 파트너 중복은 해당 팀 이름 색으로 표시하고 아이콘 뱃지는 나머지 유형만 사용
   const st = res.stats;
   const maxDiffOpt = res.plan.options ? res.plan.options.maxDiff : null;
+  const maxMeetOpt = res.plan.options ? res.plan.options.maxMeet : null;
+  const meetThreshold = maxMeetOpt != null ? maxMeetOpt + 1 : 3;
+  const usedIcons = new Set();
   state._pBadges = new Map(); // `${round}:${id}` → 아이콘 문자열
   const addPBadge = (r, id, icon) => {
     const k = r + ':' + id;
     const cur = state._pBadges.get(k) || '';
     if (!cur.includes(icon)) state._pBadges.set(k, cur + icon);
+    usedIcons.add(icon);
   };
   st.consecutiveSitList.forEach((cs) => {
     addPBadge(cs.rounds[0], cs.id, '💤');
@@ -535,24 +548,38 @@ function renderResult() {
     if (s.code === 'E_DUP_ASSIGN' && s.players) s.players.forEach((id) => addPBadge(s.round, id, '⚠️'));
     if (s.code === 'E_EXCLUDED_ASSIGNED' && s.players) s.players.forEach((id) => addPBadge(s.round, id, '⛔'));
   });
-  let badgeUsed = state._pBadges.size > 0;
+  // 파트너 중복 팀 강조: 해당 라운드에서 그 두 사람에게 성별 색 부여
+  state._dupTeam = new Set(); // `${round}:${id}`
+  res.rounds.forEach((rd, r) => {
+    rd.games.forEach((g) => {
+      g.teams.forEach((t) => {
+        if ((st.partnerCount.get(pairKey(t[0], t[1])) || 0) > 1) {
+          state._dupTeam.add(r + ':' + t[0]);
+          state._dupTeam.add(r + ':' + t[1]);
+        }
+      });
+    });
+  });
 
   const roundsHtml = res.rounds
     .map((rd, r) => {
       const gameCells = rd.games
         .map((g, gi) => {
           const team = (ti) => g.teams[ti].map((id, si) => tok(id, r, `g:${gi}:${ti}:${si}`)).join('');
-          // 게임 단위 위반 뱃지
-          const icons = [];
           const known = (id) => res.plan.byId.has(id);
           const all = [...g.teams[0], ...g.teams[1]];
+          // vs 색으로 게임 유형 표시: 검정=남복/여복, 파랑=혼복, 핫핑크=잡복
+          let vsClass = 'same';
+          const icons = [];
           if (all.every(known)) {
             const gtype = (t) => t.map((id) => res.plan.byId.get(id).gender).sort().join('');
-            if (gtype(g.teams[0]) !== gtype(g.teams[1])) icons.push('🚫');
-            if (g.teams.some((t) => (st.partnerCount.get(pairKey(t[0], t[1])) || 0) > 1)) icons.push('🔁');
+            const t1 = gtype(g.teams[0]);
+            const t2 = gtype(g.teams[1]);
+            if (t1 !== t2) vsClass = 'japbok';
+            else if (t1 === 'MW') vsClass = 'mx';
             let freq = false;
             for (const x of g.teams[0]) for (const y of g.teams[1]) {
-              if ((st.meetCount.get(pairKey(x, y)) || 0) >= 3) freq = true;
+              if ((st.meetCount.get(pairKey(x, y)) || 0) >= meetThreshold) freq = true;
             }
             if (freq) icons.push('⚔️');
             if (maxDiffOpt != null) {
@@ -560,19 +587,18 @@ function renderResult() {
               if (Math.abs(sum(g.teams[0]) - sum(g.teams[1])) > maxDiffOpt) icons.push('📏');
             }
           }
-          if (icons.length) badgeUsed = true;
+          icons.forEach((ic) => usedIcons.add(ic));
           const badgeHtml = icons.length ? `<span class="cellbadges" title="규칙 위반 — 아래 범례 참고">${icons.join('')}</span>` : '';
-          return `<td class="gamecell">${badgeHtml}<div class="tline">${team(0)}</div><div class="tline"><span class="vs">vs</span>${team(1)}</div></td>`;
+          return `<td class="gamecell">${badgeHtml}<div class="tline">${team(0)}</div><div class="tline"><span class="vs ${vsClass}">vs</span>${team(1)}</div></td>`;
         })
         .join('') + '<td class="emptycourt">—</td>'.repeat(maxCourtsAll - rd.games.length);
-      const lessonToks = rd.lesson.map((id, li) => tok(id, r, `l:${li}`)).join('') || '<span class="lessonlabel">—</span>';
-      const excludedTxt = rd.excluded.length
-        ? `<div style="margin-top:3px"><span class="lessonlabel">불참: ${rd.excluded.map((id) => esc(nameOf(id))).join(', ')}</span></div>`
-        : '';
+      // 제외(지각/조퇴) 인원도 구분 없이 일반 이름으로 표기 (스왑 대상은 아님)
+      const excludedToks = rd.excluded.map((id) => `<span class="tok" style="cursor:default">${esc(nameOf(id))}</span>`).join('');
+      const lessonToks = rd.lesson.map((id, li) => tok(id, r, `l:${li}`)).join('') + excludedToks || '<span class="lessonlabel">—</span>';
       return `<tr>
         <td class="roundcell">${r + 1}R</td>
         ${gameCells}
-        <td><div class="lessonbox">${lessonToks}${excludedTxt}</div></td>
+        <td><div class="lessonbox">${lessonToks}</div></td>
       </tr>`;
     })
     .join('');
@@ -592,17 +618,31 @@ function renderResult() {
 
   const verLabel = state.currentIdx >= 0 ? `V${state.history.length - state.currentIdx}` : '';
 
+  // 범례: 실제 표시된 아이콘 뱃지만 설명
+  const ICON_DESC = {
+    '⚔️': `⚔️ 같은 상대 ${meetThreshold}번 이상`,
+    '📏': '📏 점수차 상한 초과',
+    '💤': '💤 연속 결장',
+    '⚠️': '⚠️ 라운드 내 중복 배정',
+    '⛔': '⛔ 제외 인원 배정',
+  };
+  const legendItems = Object.keys(ICON_DESC).filter((ic) => usedIcons.has(ic)).map((ic) => ICON_DESC[ic]);
+  const legendHtml = legendItems.length ? `<div class="badge-legend">위반 표시: ${legendItems.join(' · ')}</div>` : '';
+
   return `
-  <section class="card">
+  <section class="card result">
     <h2>${isReg ? '정기모임' : '월례대회'} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span></h2>
-    ${banners.join('')}
-    <div class="bracket-scroll"><table class="bracket">
-      <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
-      ${roundsHtml}
-    </table></div>
-    ${badgeUsed
-      ? `<div class="badge-legend">위반 표시: 🚫 잡복(남녀 구성 어긋남) · 🔁 파트너 중복 · ⚔️ 같은 상대 3번 이상 · 📏 점수차 상한 초과 · 💤 연속 결장 · ⚠️ 라운드 내 중복 배정 · ⛔ 제외 인원 배정</div>`
-      : ''}
+    <div class="result-cols">
+      <div class="bracket-col">
+        <div class="bracket-scroll"><table class="bracket">
+          <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
+          ${roundsHtml}
+        </table></div>
+        ${legendHtml}
+      </div>
+      ${warnHtml ? `<div class="note-side">${warnHtml}</div>` : ''}
+    </div>
+    ${errHtml}${relaxHtml}
     <div class="hint no-print">선수 이름 두 개를 차례로 누르면 자리를 맞바꿉니다 (라운드·성별 제한 없음 — 규칙에 어긋나면 경고로 알려드립니다).</div>
     <div class="statline">
       파트너 중복 <b>${res.stats.partnerRepeats}</b>회 ·
@@ -617,10 +657,11 @@ function renderResult() {
 }
 
 function tok(id, round, loc) {
-  const g = genderOf(id) === 'M' ? 'm' : 'w';
-  const sel = state.swapSel && state.swapSel.round === round && state.swapSel.loc === loc;
+  // 기본은 무채색(검정) — 파트너 중복 팀만 성별 색으로 강조
+  const dup = state._dupTeam && state._dupTeam.has(round + ':' + id) && loc.startsWith('g');
+  const g = dup ? (genderOf(id) === 'M' ? 'm' : 'w') : '';
   const pb = state._pBadges && state._pBadges.get(round + ':' + id);
-  return `<span class="tok ${g} ${sel ? 'sel' : ''}" data-tok="${id}" data-round="${round}" data-loc="${loc}">${esc(nameOf(id))}${pb ? `<sup class="vbadge">${pb}</sup>` : ''}</span>`;
+  return `<span class="tok ${g}" data-tok="${id}" data-round="${round}" data-loc="${loc}">${esc(nameOf(id))}${pb ? `<sup class="vbadge">${pb}</sup>` : ''}</span>`;
 }
 
 // ─── 이벤트 바인딩 ───
@@ -779,6 +820,17 @@ function bindSettings() {
 
   const md = $('#opt-maxdiff');
   if (md) md.addEventListener('change', () => { state.settings.maxDiff = md.value === '' ? null : +md.value; persistAll(); });
+  const mm = $('#opt-maxmeet');
+  if (mm) mm.addEventListener('change', () => { state.settings.maxMeet = mm.value === '' ? null : +mm.value; persistAll(); });
+  document.querySelectorAll('[data-mxr]').forEach((el) =>
+    el.addEventListener('click', () => {
+      const n = +el.dataset.mxr;
+      const cur = state.settings.mixedRounds || [];
+      state.settings.mixedRounds = cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n].sort((a, b) => a - b);
+      persistAll();
+      render();
+    })
+  );
   const tt = $('#opt-tight');
   if (tt) tt.addEventListener('change', () => { state.settings.tightRounds = +tt.value; persistAll(); });
   const chk = (id, key) => {
@@ -869,7 +921,9 @@ function buildConfig(seed) {
     players,
     options: {
       maxDiff: s.maxDiff,
+      maxMeet: s.maxMeet,
       tightRounds: s.tightRounds,
+      mixedRounds: s.mixedRounds,
       allowConsecutiveSit: s.allowConsecutiveSit,
       allowPartnerRepeat: s.allowPartnerRepeat,
       ignoreGender: s.ignoreGender,

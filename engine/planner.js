@@ -10,7 +10,9 @@ export class SchedulerError extends Error {
 
 export const DEFAULT_OPTIONS = {
   maxDiff: null, // 게임 점수차 상한 (null = 제한 없음)
+  maxMeet: 2, // 같은 상대와 만나는 횟수 상한 (null = 제한 없음)
   tightRounds: 3, // 초반 빡겜(비슷한 실력 4명 한 게임) 라운드 수
+  mixedRounds: [2, 4], // 혼복 선호 라운드 (1-based, 정기모임 전용) — 그 외 라운드는 동성복식 선호
   allowConsecutiveSit: false, // 연속 결장 허용 (설정에 의한 강제 완화)
   allowPartnerRepeat: false, // 파트너 중복 허용 (설정에 의한 강제 완화)
   ignoreGender: false, // 성별 구분 없이 편성 (잡복 허용)
@@ -60,6 +62,7 @@ export function enumerateCompositions(courtCount, availM, availW) {
 export function buildPlan(config) {
   const type = config.type === 'monthly' ? 'monthly' : 'regular';
   const options = Object.assign({}, DEFAULT_OPTIONS, config.options || {});
+  options.mixedRounds = Array.isArray(options.mixedRounds) ? options.mixedRounds.map(Number) : [2, 4];
   if (!Array.isArray(config.players) || config.players.length === 0) {
     throw new SchedulerError('참석자 목록이 비어 있습니다.');
   }

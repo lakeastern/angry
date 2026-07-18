@@ -7,8 +7,8 @@ export function costOf(schedule, plan) {
   const st = computeStats(schedule, plan);
   return [
     st.structural.length * 10 + st.partnerRepeats, // 하드 (항상 0이어야 함)
-    st.diffCapViolations, // 게임 점수차 상한(설정) 위반
     st.consecutiveSits * 2 + st.spreadPenalty * 2, // 준하드: 연속 결장 + 게임 수 편차
+    st.diffCapViolations + st.meetCapViolations, // 점수차·같은 상대 상한(설정) 위반 — 준하드보다는 낮게
     st.rotationMiss + st.newMemberLessonMiss, // 레슨 로테이션(정기)
     st.mixedUncovered, // 월례 인당 혼복 1회
     st.earlyTightness, // 초반 빡겜: 같은 게임 4인의 실력 폭 최소화

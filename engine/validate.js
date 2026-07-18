@@ -210,14 +210,15 @@ export function computeStats(schedule, plan) {
     }
   }
 
-  // 라운드별 유형 선호: 정기 짝수 라운드는 혼복 우세, 그 외는 동성복식 우세.
-  // 1·3라운드는 남복/여복 선호가 특히 강함 (가중 2배)
+  // 라운드별 유형 선호: 정기는 혼복 지정 라운드(설정, 기본 2·4)에서 혼복 우세,
+  // 그 외 모든 라운드는 동성복식 우세(가중 2배)
+  const mixedRounds = opt.mixedRounds || [2, 4];
   let typePrefCost = 0;
   schedule.rounds.forEach((rd, r) => {
     const c = rd.games.filter((g) => teamGenderType(g.teams[0], byId) === 'MW').length;
     const C = rd.games.length;
-    if (schedule.type === 'regular' && (r + 1) % 2 === 0) typePrefCost += C - c;
-    else if (schedule.type === 'regular' && (r === 0 || r === 2)) typePrefCost += c * 2;
+    if (schedule.type === 'regular' && mixedRounds.includes(r + 1)) typePrefCost += C - c;
+    else if (schedule.type === 'regular') typePrefCost += c * 2;
     else typePrefCost += c;
   });
 
@@ -265,6 +266,18 @@ export function computeStats(schedule, plan) {
     }
   }
 
+  // 같은 상대 상한 위반 (설정된 경우)
+  let meetCapViolations = 0;
+  const meetCapList = [];
+  if (opt.maxMeet != null) {
+    for (const [k, cnt] of meetCount) {
+      if (cnt > opt.maxMeet) {
+        meetCapViolations += cnt - opt.maxMeet;
+        meetCapList.push({ pair: k.split('|'), count: cnt });
+      }
+    }
+  }
+
   return {
     perPlayer: per,
     scoreDiffSq,
@@ -276,6 +289,8 @@ export function computeStats(schedule, plan) {
     structural,
     partnerRepeats,
     repeatedPartners,
+    meetCapViolations,
+    meetCapList,
     opponentPenalty,
     maxMeet,
     frequentOpponents,
@@ -350,12 +365,21 @@ export function validateSchedule(schedule, plan) {
     });
   }
 
-  for (const fo of stats.frequentOpponents) {
-    if (fo.count >= 3) {
+  if (plan.options && plan.options.maxMeet != null) {
+    for (const mc of stats.meetCapList) {
       warnings.push({
-        code: 'W_FREQUENT_OPPONENT',
-        message: `${label(fo.pair[0])}와(과) ${label(fo.pair[1])}이(가) 상대로 ${fo.count}번 만납니다.`,
+        code: 'W_MEET_CAP',
+        message: `${label(mc.pair[0])}와(과) ${label(mc.pair[1])}이(가) 상대로 ${mc.count}번 만나 상한(${plan.options.maxMeet}번)을 넘습니다.`,
       });
+    }
+  } else {
+    for (const fo of stats.frequentOpponents) {
+      if (fo.count >= 3) {
+        warnings.push({
+          code: 'W_FREQUENT_OPPONENT',
+          message: `${label(fo.pair[0])}와(과) ${label(fo.pair[1])}이(가) 상대로 ${fo.count}번 만납니다.`,
+        });
+      }
     }
   }
 

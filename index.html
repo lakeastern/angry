@@ -18,14 +18,16 @@
   body {
     font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
     margin: 0; padding: 16px; background: #f5f6f8; color: #1f2937;
-    max-width: 1080px; margin-left: auto; margin-right: auto;
+    max-width: 1400px; margin-left: auto; margin-right: auto;
   }
   h1 { font-size: 1.35rem; margin: 0 0 12px; }
   h2 { font-size: 1.02rem; margin: 0 0 10px; }
   section.card {
     background: #fff; border: 1px solid var(--border); border-radius: 10px;
     padding: 14px 16px; margin-bottom: 14px;
+    max-width: 1080px; margin-left: auto; margin-right: auto;
   }
+  section.card.result { max-width: 1400px; } /* 대진표 + 오른쪽 참고 배너 공간 */
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
   .chip {
@@ -70,14 +72,21 @@
   .vbadge { font-size: 0.68rem; margin-left: 1px; }
   .badge-legend { font-size: 0.8rem; color: var(--muted); margin: 4px 0 8px; text-align: center; }
   td.roundcell { text-align: center; font-weight: 800; background: #f9fafb; width: 52px; }
+  /* 대진표 이름은 무채색 — 성별 색은 파트너 중복 강조에만 사용 */
   .tok {
-    display: inline-block; padding: 3px 9px; border-radius: 6px; margin: 1px;
-    cursor: pointer; font-weight: 700; font-size: 0.92rem; border: 1.5px solid transparent; user-select: none;
+    display: inline-block; padding: 3px 7px; border-radius: 6px; margin: 1px;
+    cursor: pointer; font-weight: 600; font-size: 0.92rem; color: #111; user-select: none;
   }
-  .tok.m { background: var(--men-bg); color: var(--men); }
-  .tok.w { background: var(--women-bg); color: var(--women); }
-  .tok.sel { border-color: #111; box-shadow: 0 0 0 2px #11182740; }
+  .tok.m { background: var(--men-bg); color: var(--men); font-weight: 700; }
+  .tok.w { background: var(--women-bg); color: var(--women); font-weight: 700; }
   .vs { color: var(--muted); font-weight: 700; margin: 0 6px 0 1px; font-size: 0.85rem; }
+  .vs.same { color: #111; }
+  .vs.mx { color: #2563eb; }
+  .vs.japbok { color: #ff1493; }
+  .result-cols { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; justify-content: center; }
+  .bracket-col { flex: 1 1 auto; min-width: 0; max-width: 100%; }
+  .note-side { flex: 0 1 320px; min-width: 250px; }
+  .note-side .banner { margin-bottom: 0; }
 
   /* 명단 관리 */
   .secsum { cursor: pointer; font-size: 0.95rem; }

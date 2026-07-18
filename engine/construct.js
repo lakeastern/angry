@@ -7,7 +7,9 @@ import { enumerateCompositions } from './planner.js';
 export function constructSchedule(plan, rng, opts = {}) {
   const { allowPartnerRepeat = false, allowConsecutiveSit = false } = opts;
   const maxDiff = plan.options ? plan.options.maxDiff : null;
+  const maxMeet = plan.options ? plan.options.maxMeet : null;
   const tightRounds = plan.options ? plan.options.tightRounds || 0 : 0;
+  const mixedRounds = plan.options && plan.options.mixedRounds ? plan.options.mixedRounds : [2, 4];
 
   const games = new Map(); // id → 게임 수
   const sits = new Map(); // id → 결장(레슨/대기) 수
@@ -40,13 +42,14 @@ export function constructSchedule(plan, rng, opts = {}) {
     if (fitting.length) comps = fitting;
     else if (!allowConsecutiveSit) return null;
 
-    // 라운드 목표 혼복 수: 정기 짝수 라운드는 최대, 그 외 최소. 월례는 커버리지 긴급도만큼.
+    // 라운드 목표 혼복 수: 정기는 혼복 선호 라운드(설정, 기본 2·4)에서 최대, 그 외 최소. 월례는 커버리지 긴급도만큼.
     const cVals = comps.map((cp) => cp.c);
     const cMin = Math.min(...cVals);
     const cMax = Math.max(...cVals);
+    const isMixedRound = plan.type === 'regular' && mixedRounds.includes(r + 1);
     let cTarget;
     if (plan.type === 'regular') {
-      cTarget = (r + 1) % 2 === 0 ? cMax : cMin;
+      cTarget = isMixedRound ? cMax : cMin;
     } else {
       let urgency = 0;
       if (plan.M > 0 && plan.W > 0) {
@@ -65,9 +68,9 @@ export function constructSchedule(plan, rng, opts = {}) {
     const defW = deficit(availW);
     const idealM = (4 * C * defM) / (defM + defW || 1);
 
-    // 성별 출전 균형(게임 수 균등, 4순위)이 유형 선호(10순위)보다 우선하도록 가중.
-    // 단 정기 1·3라운드는 남복/여복 선호를 강하게 반영 (가능하면 혼복 배제)
-    const typeWeight = plan.type === 'regular' && (r === 0 || r === 2) ? 30 : 12;
+    // 성별 출전 균형(게임 수 균등, 4순위)이 유형 선호(10순위)보다 우선하도록 가중(40 미만).
+    // 정기의 동성복식 선호 라운드(혼복 지정 외 전체)는 혼복 배제를 강하게 반영
+    const typeWeight = plan.type === 'regular' && !isMixedRound ? 22 : 12;
     const ranked = comps
       .map((cp) => ({ cp, s: Math.abs(cp.m - idealM) * 40 + Math.abs(cp.c - cTarget) * typeWeight + rng.jitter(5) }))
       .sort((a, b) => a.s - b.s)
@@ -83,9 +86,12 @@ export function constructSchedule(plan, rng, opts = {}) {
     }
     if (!built) return null;
 
-    // 커밋
+    // 커밋 — 게임 순서가 항상 남복→여복→혼복이라 남복이 a코트에 고정되는 것을 막기 위해
+    // 라운드 인덱스만큼 회전시켜 코트 배정을 순환시킨다
     const courtLetters = ['a', 'b', 'c'];
-    const roundGames = built.games.map((g, i) => ({
+    const rot = built.games.length > 1 ? r % built.games.length : 0;
+    const orderedGames = [...built.games.slice(rot), ...built.games.slice(0, rot)];
+    const roundGames = orderedGames.map((g, i) => ({
       court: courtLetters[i],
       type: g.type,
       teams: g.teams.map((team) => team.map((p) => p.id)),
@@ -364,7 +370,11 @@ export function constructSchedule(plan, rng, opts = {}) {
         let cost = rng.jitter(0.5);
         for (const [A, B] of opt) {
           let meetPen = 0;
-          for (const x of A) for (const y of B) meetPen += meets.get(pairKey(x.id, y.id)) || 0;
+          for (const x of A) for (const y of B) {
+            const met = meets.get(pairKey(x.id, y.id)) || 0;
+            meetPen += met;
+            if (maxMeet != null && met >= maxMeet) cost += 500; // 이 게임으로 상대 상한 초과 → 사실상 배제
+          }
           const sum = (t) => t[0].score + t[1].score;
           const diff = Math.abs(sum(A) - sum(B));
           cost += meetPen * 10 + diff;
