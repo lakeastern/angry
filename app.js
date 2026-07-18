@@ -502,7 +502,6 @@ function renderActions() {
       <button class="primary" id="gen">대진표 생성</button>
       ${state.result && !state.result.fatal ? '<button class="ghost" id="print">🖨 인쇄</button>' : ''}
       ${state.result && !state.result.fatal ? '<button class="ghost" id="share-b">📤 대진표 공유 링크</button>' : ''}
-      <button class="ghost" id="share-r">👥 명단만 공유 링크</button>
       ${state.result && !state.result.fatal
         ? `<button class="ghost" id="undo" ${state.undoStack.length ? '' : 'disabled'} title="스왑 되돌리기 (Ctrl+Z)">↩ 되돌리기</button>
            <button class="ghost" id="redo" ${state.redoStack.length ? '' : 'disabled'} title="되돌린 스왑 다시 실행 (Ctrl+Y)">↪ 다시 실행</button>`
@@ -908,8 +907,6 @@ function bindActions() {
       if (!tab) toast('링크는 복사되었지만 팝업이 차단되어 새 탭을 열지 못했습니다.');
     }
   });
-  const shareR = $('#share-r');
-  if (shareR) shareR.addEventListener('click', () => makeShareLink('roster'));
   const undo = $('#undo');
   if (undo) undo.addEventListener('click', () => undoSwap());
   const redo = $('#redo');
