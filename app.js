@@ -313,11 +313,13 @@ function renderViewer() {
   return `
   <section class="card">
     <h1 class="vtitle">🎾 앵그리 테니스 클럽 대진표</h1>
-    <h2>${isReg ? '정기모임' : '월례대회'} 대진표 <span class="hint-inline">${p.date ? esc(p.date) : ''} 작성함</span></h2>
-    <div class="bracket-scroll"><table class="bracket">
-      <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
-      ${rows}
-    </table></div>
+    <div class="bracket-scroll" style="text-align:center"><div style="display:inline-block">
+      <table class="bracket">
+        <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
+        ${rows}
+      </table>
+      ${p.date ? `<div class="vdate">${esc(p.date)} 작성함</div>` : ''}
+    </div></div>
   </section>
   <div class="row no-print viewer-actions">
     <button class="ghost" id="v-print">🖨 인쇄</button>

@@ -144,6 +144,7 @@
   /* 공유 링크 보기 전용 페이지 */
   .vtitle { text-align: center; font-size: 1.3rem; margin: 4px 0 16px; }
   .viewer-actions { justify-content: center; margin-bottom: 14px; }
+  .vdate { text-align: right; color: var(--muted); font-size: 0.82rem; margin-top: 2px; }
   .lessonlabel { color: var(--muted); font-size: 0.85rem; font-weight: 700; }
   .statline { font-size: 0.9rem; color: #374151; margin: 8px 0; }
   .preficon { font-size: 0.75rem; }
@@ -1811,11 +1812,13 @@ function renderViewer() {
   return `
   <section class="card">
     <h1 class="vtitle">🎾 앵그리 테니스 클럽 대진표</h1>
-    <h2>${isReg ? '정기모임' : '월례대회'} 대진표 <span class="hint-inline">${p.date ? esc(p.date) : ''} 작성함</span></h2>
-    <div class="bracket-scroll"><table class="bracket">
-      <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
-      ${rows}
-    </table></div>
+    <div class="bracket-scroll" style="text-align:center"><div style="display:inline-block">
+      <table class="bracket">
+        <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
+        ${rows}
+      </table>
+      ${p.date ? `<div class="vdate">${esc(p.date)} 작성함</div>` : ''}
+    </div></div>
   </section>
   <div class="row no-print viewer-actions">
     <button class="ghost" id="v-print">🖨 인쇄</button>
