@@ -18,8 +18,8 @@ const state = {
     gamesPerPerson: 4,
     maxDiff: null,
     maxMeet: 2,
-    tightRounds: 3,
-    mixedRounds: [2, 4],
+    tightRounds: [1, 2, 3],
+    mixedRounds: [1, 3],
     allowConsecutiveSit: false,
     allowPartnerRepeat: false,
     ignoreGender: false,
@@ -405,10 +405,12 @@ function renderSettings() {
     .map(([v, t]) => `<option value="${v}" ${String(s.maxDiff ?? '') === v ? 'selected' : ''}>${t}</option>`).join('');
   const meetOpts = [['', '제한 없음'], ['1', '1번'], ['2', '2번'], ['3', '3번'], ['4', '4번']]
     .map(([v, t]) => `<option value="${v}" ${String(s.maxMeet ?? '') === v ? 'selected' : ''}>${t}</option>`).join('');
-  const tightOpts = [0, 1, 2, 3, 4, 5]
-    .map((v) => `<option value="${v}" ${s.tightRounds === v ? 'selected' : ''}>${v === 0 ? '끄기' : v + '라운드'}</option>`).join('');
-  const mixedChips = Array.from({ length: Math.max(1, Math.min(12, s.rounds)) }, (_, i) => i + 1)
+  const roundNums = Array.from({ length: Math.max(1, Math.min(12, s.rounds)) }, (_, i) => i + 1);
+  const mixedChips = roundNums
     .map((n) => `<span class="xr ${(s.mixedRounds || []).includes(n) ? 'on' : ''}" data-mxr="${n}">${n}</span>`)
+    .join('');
+  const tightChips = roundNums
+    .map((n) => `<span class="xr ${(s.tightRounds || []).includes(n) ? 'on' : ''}" data-tgr="${n}">${n}</span>`)
     .join('');
   return `
   <section class="card no-print">
@@ -430,9 +432,9 @@ function renderSettings() {
         <label>같은 상대 상한 <select id="opt-maxmeet">${meetOpts}</select></label>
         <span class="hint">같은 상대와 만나는 횟수를 이 값 이하로 제한 (기본 2번)</span>
         <label>혼복 선호 라운드 <span style="display:inline-block;vertical-align:middle">${mixedChips}</span></label>
-        <span class="hint">선택한 라운드는 혼복 위주, 나머지는 남복/여복 위주 (정기모임 전용, 기본 2·4)</span>
-        <label>초반 빡겜 라운드 <select id="opt-tight">${tightOpts}</select></label>
-        <span class="hint">초반 라운드는 비슷한 실력끼리 한 게임에 배정 (팀은 균형 분할)</span>
+        <span class="hint">선택한 라운드는 혼복 위주, 나머지는 남복/여복 위주 (정기모임 전용, 기본 1·3)</span>
+        <label>빡겜 라운드 <span style="display:inline-block;vertical-align:middle">${tightChips}</span></label>
+        <span class="hint">선택한 라운드는 비슷한 실력끼리 한 게임에 배정 (팀은 균형 분할, 기본 1·2·3). 특히 2라운드는 남복/여복 상위 랭커(1~4위)끼리 우선 편성됩니다</span>
         <label><input type="checkbox" id="opt-consec" ${s.allowConsecutiveSit ? 'checked' : ''}> 연속 결장(레슨/대기) 허용</label>
         <span class="hint">인원이 많아 연속 결장이 불가피할 때 수동으로 허용</span>
         <label><input type="checkbox" id="opt-partner" ${s.allowPartnerRepeat ? 'checked' : ''}> 파트너 중복 허용</label>
@@ -830,17 +832,18 @@ function bindSettings() {
   if (md) md.addEventListener('change', () => { state.settings.maxDiff = md.value === '' ? null : +md.value; persistAll(); });
   const mm = $('#opt-maxmeet');
   if (mm) mm.addEventListener('change', () => { state.settings.maxMeet = mm.value === '' ? null : +mm.value; persistAll(); });
-  document.querySelectorAll('[data-mxr]').forEach((el) =>
-    el.addEventListener('click', () => {
-      const n = +el.dataset.mxr;
-      const cur = state.settings.mixedRounds || [];
-      state.settings.mixedRounds = cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n].sort((a, b) => a - b);
-      persistAll();
-      render();
-    })
-  );
-  const tt = $('#opt-tight');
-  if (tt) tt.addEventListener('change', () => { state.settings.tightRounds = +tt.value; persistAll(); });
+  const roundListToggle = (attr, key) =>
+    document.querySelectorAll(`[data-${attr}]`).forEach((el) =>
+      el.addEventListener('click', () => {
+        const n = +el.dataset[attr];
+        const cur = state.settings[key] || [];
+        state.settings[key] = cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n].sort((a, b) => a - b);
+        persistAll();
+        render();
+      })
+    );
+  roundListToggle('mxr', 'mixedRounds');
+  roundListToggle('tgr', 'tightRounds');
   const chk = (id, key) => {
     const el = $(id);
     if (el) el.addEventListener('change', () => { state.settings[key] = el.checked; persistAll(); });
@@ -1075,6 +1078,12 @@ function syncCurrentVersion() {
 async function init() {
   state.roster = load(K_ROSTER, state.roster);
   state.settings = Object.assign({}, state.settings, load(K_SETTINGS, {}));
+  // 마이그레이션: 예전 저장값(빡겜=숫자 n)은 [1..n]으로, 그때의 혼복 기본값 [2,4]는 새 기본 [1,3]으로
+  if (!Array.isArray(state.settings.tightRounds)) {
+    const n = Number(state.settings.tightRounds) || 0;
+    state.settings.tightRounds = Array.from({ length: Math.max(0, n) }, (_, i) => i + 1);
+    if (JSON.stringify(state.settings.mixedRounds || []) === '[2,4]') state.settings.mixedRounds = [1, 3];
+  }
   state.attend = Object.assign({ selectedIds: [], excludeOverrides: {} }, load(K_ATTEND, {}));
   state.history = load(K_HISTORY, []);
   // 명단에서 삭제된 인원이 참석 목록에 남아있지 않도록 정리

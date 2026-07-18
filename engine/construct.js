@@ -8,8 +8,8 @@ export function constructSchedule(plan, rng, opts = {}) {
   const { allowPartnerRepeat = false, allowConsecutiveSit = false } = opts;
   const maxDiff = plan.options ? plan.options.maxDiff : null;
   const maxMeet = plan.options ? plan.options.maxMeet : null;
-  const tightRounds = plan.options ? plan.options.tightRounds || 0 : 0;
-  const mixedRounds = plan.options && plan.options.mixedRounds ? plan.options.mixedRounds : [2, 4];
+  const tightRounds = plan.options && Array.isArray(plan.options.tightRounds) ? plan.options.tightRounds : [];
+  const mixedRounds = plan.options && plan.options.mixedRounds ? plan.options.mixedRounds : [1, 3];
 
   const games = new Map(); // id → 게임 수
   const sits = new Map(); // id → 결장(레슨/대기) 수
@@ -77,7 +77,9 @@ export function constructSchedule(plan, rng, opts = {}) {
       .map((o) => o.cp);
 
     // 빡겜 라운드는 실력 인접 4명 청크 구성을 우선 시도, 실패 시 일반 구성으로 폴백
-    const tight = r < tightRounds;
+    const tight = tightRounds.includes(r + 1);
+    // 2라운드 특별 규칙(정기): 남복/여복 상위 랭커(1~4위)끼리 게임 우선
+    const topRankRound = plan.type === 'regular' && r === 1;
     let built = null;
     for (const comp of ranked) {
       if (tight) built = tryBuildRoundTight(comp);
@@ -261,21 +263,28 @@ export function constructSchedule(plan, rng, opts = {}) {
         .map((o) => o.p);
     }
 
-    // 결장 우선순위: 게임 수 많음 > (정기 초반) 미레슨자 > 신규회원 레슨 특전 > 게임선호는 후순위
+    // 결장 우선순위: 게임 수 많음 > (정기 초반) 미레슨자 > 신규회원 레슨 특전 > 게임선호는 후순위.
+    // 2라운드는 상위 랭커(1~4위)가 출전하도록 결장 후순위.
     function sitScore(p) {
       let s = games.get(p.id) * 100;
       if (plan.type === 'regular' && r < 3 && !lessoned.has(p.id)) s += 30;
       if (plan.type === 'regular' && p.prefs.newMember && sits.get(p.id) === 0) s += 20;
       if (p.prefs.gamePriority) s -= 35;
+      if (topRankRound && p.score <= 4) s -= 60;
+      // 1라운드 선행 배치: 상위 랭커는 1라운드에 결장(레슨)해 두면
+      // 연속 결장 금지에 의해 2라운드 출전이 보장된다
+      if (plan.type === 'regular' && r === 0 && plan.R >= 2 && p.score <= 4) s += 40;
       s += rng.jitter(8);
       return s;
     }
 
-    // 혼복 슬롯 우선순위: 월례는 혼복 미경험자, 정기는 혼복선호자
+    // 혼복 슬롯 우선순위: 월례는 혼복 미경험자, 정기는 혼복선호자.
+    // 2라운드 상위 랭커는 남복/여복에 남도록 혼복 후순위.
     function mxScore(p) {
       let s = 0;
       if (plan.type === 'monthly' && mixed.get(p.id) === 0) s += 50;
       if (plan.type === 'regular' && p.prefs.mixedPreferred) s += 50;
+      if (topRankRound && p.score <= 4) s -= 80;
       s += rng.jitter(20);
       return s;
     }

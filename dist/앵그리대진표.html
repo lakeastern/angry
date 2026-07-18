@@ -233,7 +233,9 @@ function computeStats(schedule, plan) {
   const gameDiffs = [];
   let scoreDiffSum = 0;
   const opt = plan.options || {};
-  const tightK = opt.tightRounds || 0;
+  const tightList = Array.isArray(opt.tightRounds)
+    ? opt.tightRounds
+    : Array.from({ length: Math.max(0, Number(opt.tightRounds) || 0) }, (_, i) => i + 1);
   let earlyTightness = 0; // 빡겜 라운드의 게임 내 실력 폭 합
 
   schedule.rounds.forEach((rd, r) => {
@@ -292,7 +294,7 @@ function computeStats(schedule, plan) {
       const diff = Math.abs(sum(t1) - sum(t2));
       gameDiffs.push({ round: r, court: game.court, diff });
       scoreDiffSum += diff;
-      if (r < tightK) {
+      if (tightList.includes(r + 1)) {
         // 남녀 순위는 절대 실력이 다르므로 실력 폭은 성별 내에서만 계산
         for (const g of ['M', 'W']) {
           const scores = all.filter((id) => byId.get(id).gender === g).map((id) => byId.get(id).score);
@@ -425,7 +427,7 @@ function computeStats(schedule, plan) {
 
   // 라운드별 유형 선호: 정기는 혼복 지정 라운드(설정, 기본 2·4)에서 혼복 우세,
   // 그 외 모든 라운드는 동성복식 우세(가중 2배)
-  const mixedRounds = opt.mixedRounds || [2, 4];
+  const mixedRounds = opt.mixedRounds || [1, 3];
   let typePrefCost = 0;
   schedule.rounds.forEach((rd, r) => {
     const c = rd.games.filter((g) => teamGenderType(g.teams[0], byId) === 'MW').length;
@@ -442,6 +444,23 @@ function computeStats(schedule, plan) {
       if (rd.lesson.length >= 2) {
         const scores = rd.lesson.filter((id) => byId.has(id)).map((id) => byId.get(id).score);
         lessonSkillSpread += Math.max(...scores) - Math.min(...scores);
+      }
+    }
+  }
+
+  // 2라운드 상위 랭커(1~4위) 동성복식 우선 규칙(정기): 미편성 인원 수
+  let topRankMiss = 0;
+  if (schedule.type === 'regular' && schedule.rounds.length >= 2) {
+    const rd2 = schedule.rounds[1];
+    for (const g of ['M', 'W']) {
+      const tops = plan.players.filter((p) => p.gender === g && p.score <= 4 && !p.unavailable.has(1));
+      if (tops.length < 4) continue; // 동성복식 한 게임(4명)을 채울 수 없으면 규칙 미적용
+      for (const p of tops) {
+        const inSameGender = rd2.games.some((game) => {
+          const all = [...game.teams[0], ...game.teams[1]];
+          return all.includes(p.id) && all.every((id) => byId.has(id) && byId.get(id).gender === g);
+        });
+        if (!inSameGender) topRankMiss++;
       }
     }
   }
@@ -495,6 +514,7 @@ function computeStats(schedule, plan) {
     perPlayer: per,
     scoreDiffSq,
     earlyTightness,
+    topRankMiss,
     diffCapViolations,
     diffCapList,
     partnerCount,
@@ -613,8 +633,8 @@ class SchedulerError extends Error {
 const DEFAULT_OPTIONS = {
   maxDiff: null, // 게임 점수차 상한 (null = 제한 없음)
   maxMeet: 2, // 같은 상대와 만나는 횟수 상한 (null = 제한 없음)
-  tightRounds: 3, // 초반 빡겜(비슷한 실력 4명 한 게임) 라운드 수
-  mixedRounds: [2, 4], // 혼복 선호 라운드 (1-based, 정기모임 전용) — 그 외 라운드는 동성복식 선호
+  tightRounds: [1, 2, 3], // 빡겜(비슷한 실력 4명 한 게임) 라운드 (1-based). 2라운드는 상위 랭커(1~4위) 동성복식 우선
+  mixedRounds: [1, 3], // 혼복 선호 라운드 (1-based, 정기모임 전용) — 그 외 라운드는 동성복식 선호
   allowConsecutiveSit: false, // 연속 결장 허용 (설정에 의한 강제 완화)
   allowPartnerRepeat: false, // 파트너 중복 허용 (설정에 의한 강제 완화)
   ignoreGender: false, // 성별 구분 없이 편성 (잡복 허용)
@@ -664,7 +684,14 @@ function enumerateCompositions(courtCount, availM, availW) {
 function buildPlan(config) {
   const type = config.type === 'monthly' ? 'monthly' : 'regular';
   const options = Object.assign({}, DEFAULT_OPTIONS, config.options || {});
-  options.mixedRounds = Array.isArray(options.mixedRounds) ? options.mixedRounds.map(Number) : [2, 4];
+  options.mixedRounds = Array.isArray(options.mixedRounds) ? options.mixedRounds.map(Number) : [1, 3];
+  // 하위 호환: 숫자 n(초반 n라운드)으로 온 경우 [1..n]으로 변환
+  if (!Array.isArray(options.tightRounds)) {
+    const n = Number(options.tightRounds) || 0;
+    options.tightRounds = Array.from({ length: Math.max(0, n) }, (_, i) => i + 1);
+  } else {
+    options.tightRounds = options.tightRounds.map(Number);
+  }
   if (!Array.isArray(config.players) || config.players.length === 0) {
     throw new SchedulerError('참석자 목록이 비어 있습니다.');
   }
@@ -826,8 +853,8 @@ function constructSchedule(plan, rng, opts = {}) {
   const { allowPartnerRepeat = false, allowConsecutiveSit = false } = opts;
   const maxDiff = plan.options ? plan.options.maxDiff : null;
   const maxMeet = plan.options ? plan.options.maxMeet : null;
-  const tightRounds = plan.options ? plan.options.tightRounds || 0 : 0;
-  const mixedRounds = plan.options && plan.options.mixedRounds ? plan.options.mixedRounds : [2, 4];
+  const tightRounds = plan.options && Array.isArray(plan.options.tightRounds) ? plan.options.tightRounds : [];
+  const mixedRounds = plan.options && plan.options.mixedRounds ? plan.options.mixedRounds : [1, 3];
 
   const games = new Map(); // id → 게임 수
   const sits = new Map(); // id → 결장(레슨/대기) 수
@@ -895,7 +922,9 @@ function constructSchedule(plan, rng, opts = {}) {
       .map((o) => o.cp);
 
     // 빡겜 라운드는 실력 인접 4명 청크 구성을 우선 시도, 실패 시 일반 구성으로 폴백
-    const tight = r < tightRounds;
+    const tight = tightRounds.includes(r + 1);
+    // 2라운드 특별 규칙(정기): 남복/여복 상위 랭커(1~4위)끼리 게임 우선
+    const topRankRound = plan.type === 'regular' && r === 1;
     let built = null;
     for (const comp of ranked) {
       if (tight) built = tryBuildRoundTight(comp);
@@ -1079,21 +1108,28 @@ function constructSchedule(plan, rng, opts = {}) {
         .map((o) => o.p);
     }
 
-    // 결장 우선순위: 게임 수 많음 > (정기 초반) 미레슨자 > 신규회원 레슨 특전 > 게임선호는 후순위
+    // 결장 우선순위: 게임 수 많음 > (정기 초반) 미레슨자 > 신규회원 레슨 특전 > 게임선호는 후순위.
+    // 2라운드는 상위 랭커(1~4위)가 출전하도록 결장 후순위.
     function sitScore(p) {
       let s = games.get(p.id) * 100;
       if (plan.type === 'regular' && r < 3 && !lessoned.has(p.id)) s += 30;
       if (plan.type === 'regular' && p.prefs.newMember && sits.get(p.id) === 0) s += 20;
       if (p.prefs.gamePriority) s -= 35;
+      if (topRankRound && p.score <= 4) s -= 60;
+      // 1라운드 선행 배치: 상위 랭커는 1라운드에 결장(레슨)해 두면
+      // 연속 결장 금지에 의해 2라운드 출전이 보장된다
+      if (plan.type === 'regular' && r === 0 && plan.R >= 2 && p.score <= 4) s += 40;
       s += rng.jitter(8);
       return s;
     }
 
-    // 혼복 슬롯 우선순위: 월례는 혼복 미경험자, 정기는 혼복선호자
+    // 혼복 슬롯 우선순위: 월례는 혼복 미경험자, 정기는 혼복선호자.
+    // 2라운드 상위 랭커는 남복/여복에 남도록 혼복 후순위.
     function mxScore(p) {
       let s = 0;
       if (plan.type === 'monthly' && mixed.get(p.id) === 0) s += 50;
       if (plan.type === 'regular' && p.prefs.mixedPreferred) s += 50;
+      if (topRankRound && p.score <= 4) s -= 80;
       s += rng.jitter(20);
       return s;
     }
@@ -1239,7 +1275,7 @@ function costOf(schedule, plan) {
     st.diffCapViolations + st.meetCapViolations, // 점수차·같은 상대 상한(설정) 위반 — 준하드보다는 낮게
     st.rotationMiss + st.newMemberLessonMiss, // 레슨 로테이션(정기)
     st.mixedUncovered, // 월례 인당 혼복 1회
-    st.earlyTightness, // 초반 빡겜: 같은 게임 4인의 실력 폭 최소화
+    st.earlyTightness + st.topRankMiss * 10, // 빡겜(실력 폭 최소화) + 2라운드 상위 랭커 동성복식 우선
     // 상대 중복(5순위)과 점수 균형(6순위)은 인접 계층이라 가중 합산으로 묶는다.
     // 사전식으로 완전 분리하면 재대면 1회를 피하려고 점수차 7짜리 게임을 만드는 왜곡이 생긴다.
     st.opponentPenalty * 8 + st.scoreDiffSq,
@@ -1459,8 +1495,8 @@ const state = {
     gamesPerPerson: 4,
     maxDiff: null,
     maxMeet: 2,
-    tightRounds: 3,
-    mixedRounds: [2, 4],
+    tightRounds: [1, 2, 3],
+    mixedRounds: [1, 3],
     allowConsecutiveSit: false,
     allowPartnerRepeat: false,
     ignoreGender: false,
@@ -1846,10 +1882,12 @@ function renderSettings() {
     .map(([v, t]) => `<option value="${v}" ${String(s.maxDiff ?? '') === v ? 'selected' : ''}>${t}</option>`).join('');
   const meetOpts = [['', '제한 없음'], ['1', '1번'], ['2', '2번'], ['3', '3번'], ['4', '4번']]
     .map(([v, t]) => `<option value="${v}" ${String(s.maxMeet ?? '') === v ? 'selected' : ''}>${t}</option>`).join('');
-  const tightOpts = [0, 1, 2, 3, 4, 5]
-    .map((v) => `<option value="${v}" ${s.tightRounds === v ? 'selected' : ''}>${v === 0 ? '끄기' : v + '라운드'}</option>`).join('');
-  const mixedChips = Array.from({ length: Math.max(1, Math.min(12, s.rounds)) }, (_, i) => i + 1)
+  const roundNums = Array.from({ length: Math.max(1, Math.min(12, s.rounds)) }, (_, i) => i + 1);
+  const mixedChips = roundNums
     .map((n) => `<span class="xr ${(s.mixedRounds || []).includes(n) ? 'on' : ''}" data-mxr="${n}">${n}</span>`)
+    .join('');
+  const tightChips = roundNums
+    .map((n) => `<span class="xr ${(s.tightRounds || []).includes(n) ? 'on' : ''}" data-tgr="${n}">${n}</span>`)
     .join('');
   return `
   <section class="card no-print">
@@ -1871,9 +1909,9 @@ function renderSettings() {
         <label>같은 상대 상한 <select id="opt-maxmeet">${meetOpts}</select></label>
         <span class="hint">같은 상대와 만나는 횟수를 이 값 이하로 제한 (기본 2번)</span>
         <label>혼복 선호 라운드 <span style="display:inline-block;vertical-align:middle">${mixedChips}</span></label>
-        <span class="hint">선택한 라운드는 혼복 위주, 나머지는 남복/여복 위주 (정기모임 전용, 기본 2·4)</span>
-        <label>초반 빡겜 라운드 <select id="opt-tight">${tightOpts}</select></label>
-        <span class="hint">초반 라운드는 비슷한 실력끼리 한 게임에 배정 (팀은 균형 분할)</span>
+        <span class="hint">선택한 라운드는 혼복 위주, 나머지는 남복/여복 위주 (정기모임 전용, 기본 1·3)</span>
+        <label>빡겜 라운드 <span style="display:inline-block;vertical-align:middle">${tightChips}</span></label>
+        <span class="hint">선택한 라운드는 비슷한 실력끼리 한 게임에 배정 (팀은 균형 분할, 기본 1·2·3). 특히 2라운드는 남복/여복 상위 랭커(1~4위)끼리 우선 편성됩니다</span>
         <label><input type="checkbox" id="opt-consec" ${s.allowConsecutiveSit ? 'checked' : ''}> 연속 결장(레슨/대기) 허용</label>
         <span class="hint">인원이 많아 연속 결장이 불가피할 때 수동으로 허용</span>
         <label><input type="checkbox" id="opt-partner" ${s.allowPartnerRepeat ? 'checked' : ''}> 파트너 중복 허용</label>
@@ -2271,17 +2309,18 @@ function bindSettings() {
   if (md) md.addEventListener('change', () => { state.settings.maxDiff = md.value === '' ? null : +md.value; persistAll(); });
   const mm = $('#opt-maxmeet');
   if (mm) mm.addEventListener('change', () => { state.settings.maxMeet = mm.value === '' ? null : +mm.value; persistAll(); });
-  document.querySelectorAll('[data-mxr]').forEach((el) =>
-    el.addEventListener('click', () => {
-      const n = +el.dataset.mxr;
-      const cur = state.settings.mixedRounds || [];
-      state.settings.mixedRounds = cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n].sort((a, b) => a - b);
-      persistAll();
-      render();
-    })
-  );
-  const tt = $('#opt-tight');
-  if (tt) tt.addEventListener('change', () => { state.settings.tightRounds = +tt.value; persistAll(); });
+  const roundListToggle = (attr, key) =>
+    document.querySelectorAll(`[data-${attr}]`).forEach((el) =>
+      el.addEventListener('click', () => {
+        const n = +el.dataset[attr];
+        const cur = state.settings[key] || [];
+        state.settings[key] = cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n].sort((a, b) => a - b);
+        persistAll();
+        render();
+      })
+    );
+  roundListToggle('mxr', 'mixedRounds');
+  roundListToggle('tgr', 'tightRounds');
   const chk = (id, key) => {
     const el = $(id);
     if (el) el.addEventListener('change', () => { state.settings[key] = el.checked; persistAll(); });
@@ -2516,6 +2555,12 @@ function syncCurrentVersion() {
 async function init() {
   state.roster = load(K_ROSTER, state.roster);
   state.settings = Object.assign({}, state.settings, load(K_SETTINGS, {}));
+  // 마이그레이션: 예전 저장값(빡겜=숫자 n)은 [1..n]으로, 그때의 혼복 기본값 [2,4]는 새 기본 [1,3]으로
+  if (!Array.isArray(state.settings.tightRounds)) {
+    const n = Number(state.settings.tightRounds) || 0;
+    state.settings.tightRounds = Array.from({ length: Math.max(0, n) }, (_, i) => i + 1);
+    if (JSON.stringify(state.settings.mixedRounds || []) === '[2,4]') state.settings.mixedRounds = [1, 3];
+  }
   state.attend = Object.assign({ selectedIds: [], excludeOverrides: {} }, load(K_ATTEND, {}));
   state.history = load(K_HISTORY, []);
   // 명단에서 삭제된 인원이 참석 목록에 남아있지 않도록 정리

@@ -27,7 +27,9 @@ export function computeStats(schedule, plan) {
   const gameDiffs = [];
   let scoreDiffSum = 0;
   const opt = plan.options || {};
-  const tightK = opt.tightRounds || 0;
+  const tightList = Array.isArray(opt.tightRounds)
+    ? opt.tightRounds
+    : Array.from({ length: Math.max(0, Number(opt.tightRounds) || 0) }, (_, i) => i + 1);
   let earlyTightness = 0; // 빡겜 라운드의 게임 내 실력 폭 합
 
   schedule.rounds.forEach((rd, r) => {
@@ -86,7 +88,7 @@ export function computeStats(schedule, plan) {
       const diff = Math.abs(sum(t1) - sum(t2));
       gameDiffs.push({ round: r, court: game.court, diff });
       scoreDiffSum += diff;
-      if (r < tightK) {
+      if (tightList.includes(r + 1)) {
         // 남녀 순위는 절대 실력이 다르므로 실력 폭은 성별 내에서만 계산
         for (const g of ['M', 'W']) {
           const scores = all.filter((id) => byId.get(id).gender === g).map((id) => byId.get(id).score);
@@ -219,7 +221,7 @@ export function computeStats(schedule, plan) {
 
   // 라운드별 유형 선호: 정기는 혼복 지정 라운드(설정, 기본 2·4)에서 혼복 우세,
   // 그 외 모든 라운드는 동성복식 우세(가중 2배)
-  const mixedRounds = opt.mixedRounds || [2, 4];
+  const mixedRounds = opt.mixedRounds || [1, 3];
   let typePrefCost = 0;
   schedule.rounds.forEach((rd, r) => {
     const c = rd.games.filter((g) => teamGenderType(g.teams[0], byId) === 'MW').length;
@@ -236,6 +238,23 @@ export function computeStats(schedule, plan) {
       if (rd.lesson.length >= 2) {
         const scores = rd.lesson.filter((id) => byId.has(id)).map((id) => byId.get(id).score);
         lessonSkillSpread += Math.max(...scores) - Math.min(...scores);
+      }
+    }
+  }
+
+  // 2라운드 상위 랭커(1~4위) 동성복식 우선 규칙(정기): 미편성 인원 수
+  let topRankMiss = 0;
+  if (schedule.type === 'regular' && schedule.rounds.length >= 2) {
+    const rd2 = schedule.rounds[1];
+    for (const g of ['M', 'W']) {
+      const tops = plan.players.filter((p) => p.gender === g && p.score <= 4 && !p.unavailable.has(1));
+      if (tops.length < 4) continue; // 동성복식 한 게임(4명)을 채울 수 없으면 규칙 미적용
+      for (const p of tops) {
+        const inSameGender = rd2.games.some((game) => {
+          const all = [...game.teams[0], ...game.teams[1]];
+          return all.includes(p.id) && all.every((id) => byId.has(id) && byId.get(id).gender === g);
+        });
+        if (!inSameGender) topRankMiss++;
       }
     }
   }
@@ -289,6 +308,7 @@ export function computeStats(schedule, plan) {
     perPlayer: per,
     scoreDiffSq,
     earlyTightness,
+    topRankMiss,
     diffCapViolations,
     diffCapList,
     partnerCount,

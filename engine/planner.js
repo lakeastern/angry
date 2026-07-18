@@ -11,8 +11,8 @@ export class SchedulerError extends Error {
 export const DEFAULT_OPTIONS = {
   maxDiff: null, // 게임 점수차 상한 (null = 제한 없음)
   maxMeet: 2, // 같은 상대와 만나는 횟수 상한 (null = 제한 없음)
-  tightRounds: 3, // 초반 빡겜(비슷한 실력 4명 한 게임) 라운드 수
-  mixedRounds: [2, 4], // 혼복 선호 라운드 (1-based, 정기모임 전용) — 그 외 라운드는 동성복식 선호
+  tightRounds: [1, 2, 3], // 빡겜(비슷한 실력 4명 한 게임) 라운드 (1-based). 2라운드는 상위 랭커(1~4위) 동성복식 우선
+  mixedRounds: [1, 3], // 혼복 선호 라운드 (1-based, 정기모임 전용) — 그 외 라운드는 동성복식 선호
   allowConsecutiveSit: false, // 연속 결장 허용 (설정에 의한 강제 완화)
   allowPartnerRepeat: false, // 파트너 중복 허용 (설정에 의한 강제 완화)
   ignoreGender: false, // 성별 구분 없이 편성 (잡복 허용)
@@ -62,7 +62,14 @@ export function enumerateCompositions(courtCount, availM, availW) {
 export function buildPlan(config) {
   const type = config.type === 'monthly' ? 'monthly' : 'regular';
   const options = Object.assign({}, DEFAULT_OPTIONS, config.options || {});
-  options.mixedRounds = Array.isArray(options.mixedRounds) ? options.mixedRounds.map(Number) : [2, 4];
+  options.mixedRounds = Array.isArray(options.mixedRounds) ? options.mixedRounds.map(Number) : [1, 3];
+  // 하위 호환: 숫자 n(초반 n라운드)으로 온 경우 [1..n]으로 변환
+  if (!Array.isArray(options.tightRounds)) {
+    const n = Number(options.tightRounds) || 0;
+    options.tightRounds = Array.from({ length: Math.max(0, n) }, (_, i) => i + 1);
+  } else {
+    options.tightRounds = options.tightRounds.map(Number);
+  }
   if (!Array.isArray(config.players) || config.players.length === 0) {
     throw new SchedulerError('참석자 목록이 비어 있습니다.');
   }

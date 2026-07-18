@@ -21,18 +21,22 @@ test('남7 여5 정기 5라운드 — 기준 케이스', () => {
   assert.equal(res.stats.spreadPenalty, 0);
   assert.equal(res.stats.rotationMiss, 0, '12명이면 3라운드 내 전원 레슨 가능');
 
-  // 짝수 라운드(2·4)는 혼복 우세
+  // 기본 혼복 라운드는 1·3, 2라운드는 동성복식
   const cOf = (r) => res.rounds[r].games.filter((g) => g.type === 'MX').length;
-  assert.ok(cOf(1) >= 1 && cOf(3) >= 1, '2·4라운드에 혼복이 있어야 함');
-  assert.ok(cOf(1) + cOf(3) >= cOf(0) + cOf(2) + cOf(4), '짝수 라운드 혼복이 홀수 라운드보다 많거나 같아야 함');
+  assert.ok(cOf(0) >= 1 && cOf(2) >= 1, '1·3라운드에 혼복이 있어야 함');
+  assert.equal(cOf(1), 0, '2라운드는 동성복식이어야 함');
 });
 
-test('1·3라운드는 혼복 없이 남복/여복으로 구성 (가능한 인원일 때)', () => {
+test('2라운드는 남복/여복 상위 랭커(1~4위)끼리 우선 편성', () => {
   for (const [M, W] of [[7, 5], [6, 6], [8, 6]]) {
     const res = generateSchedule({ type: 'regular', rounds: 5, players: mk(M, W), seed: 42 });
-    const cOf = (r) => res.rounds[r].games.filter((g) => g.type === 'MX').length;
-    assert.equal(cOf(0), 0, `남${M}여${W}: 1라운드에 혼복이 있으면 안 됨`);
-    assert.equal(cOf(2), 0, `남${M}여${W}: 3라운드에 혼복이 있으면 안 됨`);
+    const r2 = res.rounds[1];
+    const mm = r2.games.find((g) => g.type === 'MM');
+    const ww = r2.games.find((g) => g.type === 'WW');
+    assert.ok(mm && ww, `남${M}여${W}: 2라운드에 남복·여복이 있어야 함`);
+    assert.deepEqual([...mm.teams[0], ...mm.teams[1]].sort(), ['m1', 'm2', 'm3', 'm4'], `남${M}여${W}: 2라운드 남복은 남자 1~4위`);
+    assert.deepEqual([...ww.teams[0], ...ww.teams[1]].sort(), ['w1', 'w2', 'w3', 'w4'], `남${M}여${W}: 2라운드 여복은 여자 1~4위`);
+    assert.equal(res.stats.topRankMiss, 0);
   }
 });
 
