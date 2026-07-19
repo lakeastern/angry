@@ -414,7 +414,8 @@ function renderSettings() {
     .map(([v, t]) => `<option value="${v}" ${String(s.maxMeet ?? '') === v ? 'selected' : ''}>${t}</option>`).join('');
   const minMixedOpts = [['0', '없음'], ['1', '1회'], ['2', '2회'], ['3', '3회'], ['4', '4회']]
     .map(([v, t]) => `<option value="${v}" ${String(s.minMixedGames ?? 1) === v ? 'selected' : ''}>${t}</option>`).join('');
-  const roundNums = Array.from({ length: Math.max(1, Math.min(12, s.rounds)) }, (_, i) => i + 1);
+  // 라운드 칩 개수는 실제 라운드 수에 맞춘다: 정기는 입력한 라운드 수, 게임데이는 참석자·인당 게임 수로 계산
+  const roundNums = Array.from({ length: Math.max(1, estimatedRounds()) }, (_, i) => i + 1);
   const mixedChips = roundNums
     .map((n) => `<span class="xr ${(s.mixedRounds || []).includes(n) ? 'on' : ''}" data-mxr="${n}">${n}</span>`)
     .join('');
