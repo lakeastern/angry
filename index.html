@@ -141,6 +141,17 @@
   }
   .vchip.on { border-color: var(--accent); background: #ecfdf5; color: #166534; font-weight: 700; }
 
+  /* 앵그리대회 별칭 배정 패널 */
+  .alias-panel { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 10px 0; background: #fafafa; }
+  .acols { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 8px; }
+  .acol { flex: 1 1 240px; min-width: 220px; }
+  .arow { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+  .aname { font-weight: 700; min-width: 70px; }
+  .aname.m { color: var(--men); }
+  .aname.w { color: var(--women); }
+  .aarrow { color: var(--muted); }
+  .asel { flex: 1; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem; }
+
   /* 공유 링크 보기 전용 페이지 */
   .vtitle { text-align: center; font-size: 1.3rem; margin: 4px 0 16px; }
   .viewer-actions { justify-content: center; margin-bottom: 14px; }
@@ -168,7 +179,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-19 22:29</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-19 23:28</span></div>
 <div id="toast"></div>
 <script type="module" src="./app.js"></script>
 </body>

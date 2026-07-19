@@ -33,6 +33,7 @@ const state = {
   swapSel: null, // {round, loc, id}
   editingId: null,
   dragId: null,
+  showRealNames: false, // 앵그리대회: 대진표를 별칭(false) / 실명(true)으로 표시
   ui: { roster: null, adv: null, exclude: null }, // details 접힘 상태 (null = 자동)
   share: null, // 공유 링크로 열었을 때의 페이로드
   viewerMode: false, // 'b'(대진표 보기) | 'r'(명단 수신 대기) | false
@@ -51,11 +52,28 @@ function memberOf(id) {
   return state.roster.men.find((m) => m.id === id) || state.roster.women.find((m) => m.id === id) || null;
 }
 function genderOf(id) {
-  return state.roster.men.some((m) => m.id === id) ? 'M' : 'W';
+  if (state.roster.men.some((m) => m.id === id)) return 'M';
+  if (state.roster.women.some((m) => m.id === id)) return 'W';
+  if (typeof id === 'string' && id.startsWith('am')) return 'M'; // 앵그리대회 남 별칭
+  if (typeof id === 'string' && id.startsWith('aw')) return 'W'; // 앵그리대회 여 별칭
+  return 'W';
 }
 function nameOf(id) {
   const m = memberOf(id);
   return m ? m.name : id;
+}
+// 대진표 토큰 표시명: 앵그리대회는 별칭 라벨(기본) 또는 실명(토글)
+function dispName(id) {
+  const res = state.result;
+  if (res && res.mode === 'tournament') {
+    if (state.showRealNames && res.aliasAssign) {
+      const m = memberOf(res.aliasAssign[id]);
+      if (m) return m.name;
+    }
+    const p = res.plan && res.plan.byId.get(id);
+    if (p) return p.label; // 별칭 라벨 (남1, 여1…)
+  }
+  return nameOf(id);
 }
 
 function toast(msg) {
@@ -150,6 +168,16 @@ async function makeShareLink(kind) {
     const names = {};
     entry.config.players.forEach((p) => (names[p.id] = [p.name, p.gender]));
     payload.b = { type: entry.config.type, rounds: state.result.rounds, names };
+    if (entry.mode === 'tournament') {
+      payload.b.mode = 'tournament';
+      // 배정된 별칭 → 실명 (제비뽑기 완료분만; 미배정이면 빈 값이라 뷰어는 별칭만 표시)
+      const aliasReal = {};
+      Object.entries(entry.aliasAssign || {}).forEach(([alias, mid]) => {
+        const m = memberOf(mid);
+        if (m) aliasReal[alias] = m.name;
+      });
+      payload.b.aliasReal = aliasReal;
+    }
     secret.config = entry.config;
     secret.seed = entry.seed;
   }
@@ -192,14 +220,24 @@ function importShared(dec, payload) {
   if (dec.config && payload.b) {
     const exists = state.history.some((h) => h.seed === dec.seed && JSON.stringify(h.rounds) === JSON.stringify(payload.b.rounds));
     if (!exists) {
-      state.history.unshift({
+      const entry = {
         ts: payload.date || '공유됨',
         seed: dec.seed,
         config: dec.config,
         rounds: deepClone(payload.b.rounds),
         edited: false,
         summary: { avgDiff: '-', maxMeet: '-', partnerRepeats: '-' },
-      });
+      };
+      if (payload.b.mode === 'tournament') {
+        entry.mode = 'tournament';
+        // aliasReal(별칭→실명)을 명단에서 이름 매칭해 aliasAssign(별칭→멤버id)으로 복원
+        const byName = {};
+        (dec.roster ? [...dec.roster.men, ...dec.roster.women] : []).forEach((m) => (byName[m.name] = m.id));
+        const assign = {};
+        Object.entries(payload.b.aliasReal || {}).forEach(([alias, name]) => { if (byName[name]) assign[alias] = byName[name]; });
+        entry.aliasAssign = assign;
+      }
+      state.history.unshift(entry);
       if (state.history.length > 10) state.history.length = 10;
     }
   }
@@ -298,7 +336,13 @@ function renderViewer() {
     </section>`;
   }
   const b = p.b;
-  const nameV = (id) => (b.names[id] ? b.names[id][0] : id);
+  const isTour = b.mode === 'tournament';
+  const aliasReal = b.aliasReal || {};
+  const hasAssign = Object.keys(aliasReal).length > 0;
+  const nameV = (id) => {
+    if (isTour && state.showRealNames && aliasReal[id]) return aliasReal[id];
+    return b.names[id] ? b.names[id][0] : id;
+  };
   const tokV = (id) => `<span class="tok" style="cursor:default">${esc(nameV(id))}</span>`;
   const isReg = b.type === 'regular';
   const maxCourts = Math.max(...b.rounds.map((rd) => rd.games.length));
@@ -325,6 +369,7 @@ function renderViewer() {
   </section>
   <div class="row no-print viewer-actions">
     <button class="ghost" id="v-print">🖨 인쇄</button>
+    ${isTour && hasAssign ? `<button class="ghost" id="v-nametoggle">${state.showRealNames ? '별칭 보기' : '실명 보기'}</button>` : ''}
     ${state.shareUnlocked
       ? '<button class="ghost" id="v-admin">⚙ 관리자 화면 열기</button>'
       : '<button class="ghost" id="v-unlock">🔑 관리자 모드</button>'}
@@ -334,6 +379,8 @@ function renderViewer() {
 function bindViewer() {
   const pr = $('#v-print');
   if (pr) pr.addEventListener('click', () => window.print());
+  const nt = $('#v-nametoggle');
+  if (nt) nt.addEventListener('click', () => { state.showRealNames = !state.showRealNames; render(); });
   const adm = $('#v-admin');
   if (adm) adm.addEventListener('click', () => {
     state.viewerMode = false;
@@ -408,6 +455,7 @@ function renderRoster() {
 function renderSettings() {
   const s = state.settings;
   const isReg = s.meetingType === 'regular';
+  const isTour = s.meetingType === 'tournament';
   const diffOpts = [['', '제한 없음'], ['1', '1점'], ['2', '2점'], ['3', '3점'], ['4', '4점'], ['5', '5점']]
     .map(([v, t]) => `<option value="${v}" ${String(s.maxDiff ?? '') === v ? 'selected' : ''}>${t}</option>`).join('');
   const meetOpts = [['', '제한 없음'], ['1', '1번'], ['2', '2번'], ['3', '3번'], ['4', '4번']]
@@ -431,27 +479,31 @@ function renderSettings() {
     <div class="row">
       <label class="radio"><input type="radio" name="mtype" value="regular" ${s.meetingType === 'regular' ? 'checked' : ''}> 정기모임 (a·b 게임 + c 레슨)</label>
       <label class="radio"><input type="radio" name="mtype" value="monthly" ${s.meetingType === 'monthly' ? 'checked' : ''}> 게임데이 (3코트 게임)</label>
+      <label class="radio"><input type="radio" name="mtype" value="tournament" ${s.meetingType === 'tournament' ? 'checked' : ''}> 앵그리대회 (별칭 대진표)</label>
     </div>
     <div class="row" style="margin-top:8px">
       ${s.meetingType === 'regular'
         ? `<label>총 라운드 수 <input type="number" id="rounds" min="1" max="12" value="${s.rounds}"></label>`
         : `<label>인당 게임 수 <input type="number" id="gpp" min="1" max="10" value="${s.gamesPerPerson}"></label>`}
+      ${s.meetingType === 'tournament' ? '<span class="hint-inline">참석자의 남/여 수만큼 남1·남2…/여1·여2… 별칭으로 대진표를 만들고, 현장 제비뽑기로 실제 멤버를 배정합니다.</span>' : ''}
     </div>
     <details data-uikey="adv" ${state.ui.adv ? 'open' : ''} style="margin-top:10px">
       <summary class="secsum">고급 설정 (제약 튜닝)</summary>
       <div class="advgrid">
+        ${!isTour ? `
         <label>게임 점수차 상한 <select id="opt-maxdiff">${diffOpts}</select></label>
-        <span class="hint">한 게임의 두 팀 합산 점수 차이를 이 값 이하로 제한</span>
+        <span class="hint">한 게임의 두 팀 합산 점수 차이를 이 값 이하로 제한</span>` : ''}
         <label>같은 상대 상한 <select id="opt-maxmeet">${meetOpts}</select></label>
         <span class="hint">같은 상대와 만나는 횟수를 이 값 이하로 제한 (기본 2번)</span>
         ${!isReg ? `
         <label>인당 최소 혼복 게임 수 <select id="opt-minmixed">${minMixedOpts}</select></label>
-        <span class="hint">게임데이에서 모든 참가자가 최소 이 횟수만큼 혼복을 하도록 배정 (기본 1회, '없음'이면 미적용)</span>` : ''}
+        <span class="hint">모든 참가자가 최소 이 횟수만큼 혼복을 하도록 배정 (기본 1회, '없음'이면 미적용)</span>` : ''}
         ${isReg ? `
         <label>혼복 위주 라운드 <span style="display:inline-block;vertical-align:middle">${mixedChips}</span></label>
         <span class="hint">선택한 라운드는 혼복 위주, 나머지는 남복/여복 위주 (기본 1·3)</span>` : ''}
+        ${!isTour ? `
         <label>라이벌 라운드 <span style="display:inline-block;vertical-align:middle">${tightChips}</span></label>
-        <span class="hint">선택한 라운드는 비슷한 실력끼리 한 게임에 배정 — 팀은 균형 분할 (기본 1·2·3)</span>
+        <span class="hint">선택한 라운드는 비슷한 실력끼리 한 게임에 배정 — 팀은 균형 분할 (기본 1·2·3)</span>` : ''}
         ${isReg ? `
         <label>랭커 라운드 <span style="display:inline-block;vertical-align:middle">${rankerChips}</span></label>
         <span class="hint">선택한 라운드는 상위 랭커끼리 게임 — 남복/여복은 상위 5명 중 4명, 혼복(혼복 위주 라운드와 겹칠 때)은 남녀 각 상위 3명 중 2명을 매번 랜덤 선정 (기본 2)</span>` : ''}
@@ -459,8 +511,9 @@ function renderSettings() {
         <span class="hint">인원이 많아 연속 결장이 불가피할 때 수동으로 허용</span>
         <label><input type="checkbox" id="opt-partner" ${s.allowPartnerRepeat ? 'checked' : ''}> 파트너 중복 허용</label>
         <span class="hint">라운드가 많거나 인원이 적어 같은 파트너가 불가피할 때</span>
+        ${!isTour ? `
         <label><input type="checkbox" id="opt-nogender" ${s.ignoreGender ? 'checked' : ''}> 성별 구분 없이 편성 (잡복 허용)</label>
-        <span class="hint">남녀 상관없이 실력 순위만으로 팀 구성 — 극단적 성비일 때 사용</span>
+        <span class="hint">남녀 상관없이 실력 순위만으로 팀 구성 — 극단적 성비일 때 사용</span>` : ''}
         <label>관리자 비밀번호 <input type="password" id="opt-pw" placeholder="${localStorage.getItem(K_KEY) ? '설정됨 · 변경하려면 입력' : '미설정'}" style="width:150px"> <button class="ghost mini2" id="pw-save">저장</button></label>
         <span class="hint">공유 링크 속 명단·설정이 이 비밀번호로 잠깁니다. 명단 수정 권한을 줄 사람(예: 회장)에게만 알려주세요. 변경하면 이전 링크로는 명단을 더 못 불러옵니다.</span>
       </div>
@@ -548,6 +601,7 @@ function renderResult() {
     : '';
 
   const isReg = res.type === 'regular';
+  const isTour = res.mode === 'tournament';
   const maxCourtsAll = Math.max(...res.rounds.map((rd) => rd.games.length));
 
   // 관리자 화면 전용: 규칙 위반을 셀·선수 단위 표시 (경기이사 수동 조정용)
@@ -623,7 +677,7 @@ function renderResult() {
         })
         .join('') + '<td class="emptycourt">—</td>'.repeat(maxCourtsAll - rd.games.length);
       // 제외(지각/조퇴) 인원도 구분 없이 일반 이름으로 표기 (스왑 대상은 아님)
-      const excludedToks = rd.excluded.map((id) => `<span class="tok" style="cursor:default">${esc(nameOf(id))}</span>`).join('');
+      const excludedToks = rd.excluded.map((id) => `<span class="tok" style="cursor:default">${esc(dispName(id))}</span>`).join('');
       const lessonToks = rd.lesson.map((id, li) => tok(id, r, `l:${li}`)).join('') + excludedToks || '<span class="lessonlabel">—</span>';
       return `<tr>
         <td class="roundcell">${r + 1}R</td>
@@ -642,7 +696,7 @@ function renderResult() {
       const m = memberOf(id) || { prefs: {} };
       const p = m.prefs || {};
       const icons = `${p.gamePriority ? '⚡' : ''}${p.newMember ? '🔰' : ''}${p.mixedPreferred ? '💞' : ''}`;
-      return `<tr><td style="color:${genderOf(id) === 'M' ? 'var(--men)' : 'var(--women)'}">${esc(nameOf(id))} <span class="preficon">${icons}</span></td><td>${s.games}</td><td>${s.mixed}</td><td>${s.sits}</td></tr>`;
+      return `<tr><td style="color:${genderOf(id) === 'M' ? 'var(--men)' : 'var(--women)'}">${esc(dispName(id))} <span class="preficon">${icons}</span></td><td>${s.games}</td><td>${s.mixed}</td><td>${s.sits}</td></tr>`;
     })
     .join('');
 
@@ -659,9 +713,14 @@ function renderResult() {
   const legendItems = Object.keys(ICON_DESC).filter((ic) => usedIcons.has(ic)).map((ic) => ICON_DESC[ic]);
   const legendHtml = legendItems.length ? `<div class="badge-legend">위반 표시: ${legendItems.join(' · ')}</div>` : '';
 
+  const modeLabel = isTour ? '앵그리대회' : isReg ? '정기모임' : '게임데이';
+  const toggleBtn = isTour
+    ? `<button class="ghost mini2" id="name-toggle">${state.showRealNames ? '별칭 보기' : '실명 보기'}</button>`
+    : '';
+
   return `
   <section class="card">
-    <h2>${isReg ? '정기모임' : '게임데이'} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span></h2>
+    <h2>${modeLabel} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span> ${toggleBtn}</h2>
     <div class="result-cols">
       <div class="bracket-col">
         <div class="bracket-scroll"><table class="bracket">
@@ -673,17 +732,62 @@ function renderResult() {
       ${warnHtml ? `<div class="note-side">${warnHtml}</div>` : ''}
     </div>
     ${errHtml}${relaxHtml}
-    <div class="hint no-print">선수 이름 두 개를 차례로 누르면 자리를 맞바꿉니다 (라운드·성별 제한 없음 — 규칙에 어긋나면 경고로 알려드립니다).</div>
+    ${isTour ? renderAliasPanel() : `<div class="hint no-print">선수 이름 두 개를 차례로 누르면 자리를 맞바꿉니다 (라운드·성별 제한 없음 — 규칙에 어긋나면 경고로 알려드립니다).</div>`}
     <div class="statline">
       파트너 중복 <b>${res.stats.partnerRepeats}</b>회 ·
-      같은 상대 최대 <b>${res.stats.maxMeet}</b>번 ·
-      게임 점수차 평균 <b>${res.stats.scoreDiffAvg.toFixed(1)}</b> / 최대 <b>${res.stats.scoreDiffMax}</b>
+      같은 상대 최대 <b>${res.stats.maxMeet}</b>번${isTour ? '' : ` · 게임 점수차 평균 <b>${res.stats.scoreDiffAvg.toFixed(1)}</b> / 최대 <b>${res.stats.scoreDiffMax}</b>`}
     </div>
     <table class="detail-table" style="max-width:360px">
       <tr><th>선수</th><th>게임</th><th>혼복</th><th>${isReg ? '레슨' : '대기'}</th></tr>
       ${statRows}
     </table>
   </section>`;
+}
+
+// 앵그리대회: 별칭 → 실제 멤버 배정 패널 (참석자별 별칭 드롭다운, 동성만·이미 선택된 별칭 숨김)
+function renderAliasPanel() {
+  const res = state.result;
+  const assign = res.aliasAssign || {}; // {aliasId: memberId}
+  // 별칭 목록 (대진표에 등장한 순 = plan 순서)
+  const aliases = [...res.plan.byId.keys()];
+  const memberToAlias = {};
+  Object.entries(assign).forEach(([alias, mid]) => { if (mid) memberToAlias[mid] = alias; });
+  const takenAliases = new Set(Object.keys(assign).filter((a) => assign[a])); // 이미 누군가에게 배정된 별칭
+
+  const pool = attendeePool();
+  const row = (mid) => {
+    const m = memberOf(mid);
+    if (!m) return '';
+    const g = genderOf(mid);
+    const cur = memberToAlias[mid] || '';
+    // 동성 별칭 중, 미배정이거나 자기 자신이 선택한 것만 노출 (다른 사람이 쓰는 별칭은 숨김)
+    const opts = aliases
+      .filter((a) => genderOf(a) === g && (!takenAliases.has(a) || a === cur))
+      .map((a) => `<option value="${a}" ${a === cur ? 'selected' : ''}>${esc(res.plan.byId.get(a).label)}</option>`)
+      .join('');
+    return `<div class="arow">
+      <span class="aname ${g === 'M' ? 'm' : 'w'}">${esc(m.name)}</span>
+      <span class="aarrow">→</span>
+      <select class="asel" data-assign="${mid}"><option value="">미배정</option>${opts}</select>
+    </div>`;
+  };
+  const assignedCount = Object.values(assign).filter(Boolean).length;
+  const total = pool.men.length + pool.women.length;
+  return `
+  <div class="alias-panel no-print">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <b>🎲 별칭 배정 <span class="hint-inline">(${assignedCount}/${total})</span></b>
+      <span class="row" style="gap:6px">
+        <button class="ghost mini2" id="alias-draw">🎲 제비뽑기</button>
+        <button class="ghost mini2" id="alias-reset">초기화</button>
+      </span>
+    </div>
+    <div class="hint">현장 제비뽑기 결과를 입력하거나, 제비뽑기 버튼으로 무작위 배정하세요. 상단 "실명 보기"로 대진표에 실제 이름이 반영됩니다.</div>
+    <div class="acols">
+      <div class="acol">${pool.men.map(row).join('') || '<span class="hint">남자 없음</span>'}</div>
+      <div class="acol">${pool.women.map(row).join('') || '<span class="hint">여자 없음</span>'}</div>
+    </div>
+  </div>`;
 }
 
 function tok(id, round, loc) {
@@ -693,7 +797,7 @@ function tok(id, round, loc) {
   const sel = state.swapSel && state.swapSel.round === round && state.swapSel.loc === loc;
   const swapped = state._justSwapped && state._justSwapped.has(round + ':' + id);
   const pb = state._pBadges && state._pBadges.get(round + ':' + id);
-  return `<span class="tok ${g} ${sel ? 'sel' : ''} ${swapped ? 'swapped' : ''}" data-tok="${id}" data-round="${round}" data-loc="${loc}">${esc(nameOf(id))}${pb ? `<sup class="vbadge">${pb}</sup>` : ''}</span>`;
+  return `<span class="tok ${g} ${sel ? 'sel' : ''} ${swapped ? 'swapped' : ''}" data-tok="${id}" data-round="${round}" data-loc="${loc}">${esc(dispName(id))}${pb ? `<sup class="vbadge">${pb}</sup>` : ''}</span>`;
 }
 
 // ─── 이벤트 바인딩 ───
@@ -937,10 +1041,86 @@ function bindActions() {
 
 function bindResult() {
   document.querySelectorAll('[data-tok]').forEach((el) => el.addEventListener('click', () => onTokenClick(el)));
+
+  const nameToggle = $('#name-toggle');
+  if (nameToggle) nameToggle.addEventListener('click', () => { state.showRealNames = !state.showRealNames; render(); });
+
+  // 별칭 배정 드롭다운 (참석자 → 별칭)
+  document.querySelectorAll('[data-assign]').forEach((el) =>
+    el.addEventListener('change', () => {
+      const mid = el.dataset.assign;
+      const alias = el.value;
+      const assign = state.result.aliasAssign || (state.result.aliasAssign = {});
+      // 이 멤버의 기존 별칭 해제
+      for (const [a, m] of Object.entries(assign)) if (m === mid) delete assign[a];
+      // 새 별칭에 배정 (해당 별칭의 기존 배정도 해제 — 안전장치)
+      if (alias) assign[alias] = mid;
+      syncCurrentVersion(false);
+      render();
+    })
+  );
+
+  const draw = $('#alias-draw');
+  if (draw) draw.addEventListener('click', () => drawLots());
+  const reset = $('#alias-reset');
+  if (reset) reset.addEventListener('click', () => {
+    state.result.aliasAssign = {};
+    syncCurrentVersion(false);
+    render();
+  });
+}
+
+// 제비뽑기: 성별 내 참석자를 섞어 별칭에 순서대로 배정
+function drawLots() {
+  const res = state.result;
+  const aliases = [...res.plan.byId.keys()];
+  const menAliases = aliases.filter((a) => genderOf(a) === 'M');
+  const womenAliases = aliases.filter((a) => genderOf(a) === 'W');
+  const pool = attendeePool();
+  const shuffle = (arr) => { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const assign = {};
+  shuffle(pool.men).forEach((mid, i) => { if (menAliases[i]) assign[menAliases[i]] = mid; });
+  shuffle(pool.women).forEach((mid, i) => { if (womenAliases[i]) assign[womenAliases[i]] = mid; });
+  res.aliasAssign = assign;
+  syncCurrentVersion(false);
+  render();
 }
 
 // ─── 생성·버전·수동 편집 ───
+// 참석자 중 남/여 실제 멤버 id 목록 (명단 순서 유지)
+function attendeePool() {
+  const men = state.roster.men.filter((m) => state.attend.selectedIds.includes(m.id)).map((m) => m.id);
+  const women = state.roster.women.filter((m) => state.attend.selectedIds.includes(m.id)).map((m) => m.id);
+  return { men, women };
+}
+
 function buildConfig(seed) {
+  const s = state.settings;
+  if (s.meetingType === 'tournament') {
+    // 앵그리대회: 동등 점수 별칭 선수(남1.., 여1..)로 게임데이(monthly) 대진표 생성
+    const pool = attendeePool();
+    const players = [];
+    pool.men.forEach((_, i) => players.push({ id: `am${i + 1}`, name: `남${i + 1}`, gender: 'M', score: 1 }));
+    pool.women.forEach((_, i) => players.push({ id: `aw${i + 1}`, name: `여${i + 1}`, gender: 'W', score: 1 }));
+    return {
+      type: 'monthly',
+      gamesPerPerson: s.gamesPerPerson,
+      players,
+      options: {
+        maxDiff: null, // 별칭엔 랭킹 없음 → 점수차 상한 미적용
+        maxMeet: s.maxMeet,
+        minMixedGames: s.minMixedGames,
+        tightRounds: [], // 라이벌 라운드 미적용
+        mixedRounds: [],
+        rankerRounds: [],
+        allowConsecutiveSit: s.allowConsecutiveSit,
+        allowPartnerRepeat: s.allowPartnerRepeat,
+        ignoreGender: false,
+      },
+      seed,
+    };
+  }
+
   const players = [];
   const collect = (key, gender) =>
     state.roster[key].forEach((m, idx) => {
@@ -956,7 +1136,6 @@ function buildConfig(seed) {
     });
   collect('men', 'M');
   collect('women', 'W');
-  const s = state.settings;
   return {
     type: s.meetingType,
     rounds: s.rounds,
@@ -982,16 +1161,22 @@ function generate() {
   state.swapSel = null;
   state.undoStack = [];
   state.redoStack = [];
+  const isTournament = state.settings.meetingType === 'tournament';
   try {
     const res = generateSchedule(config);
     res.edited = false;
+    res.mode = state.settings.meetingType;
+    res.aliasAssign = {};
     state.result = res;
+    state.showRealNames = false;
     const entry = {
       ts: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
       seed: res.seed,
       config,
       rounds: deepClone(res.rounds),
       edited: false,
+      mode: state.settings.meetingType,
+      aliasAssign: isTournament ? {} : undefined,
       summary: {
         avgDiff: res.stats.scoreDiffAvg.toFixed(1),
         maxMeet: res.stats.maxMeet,
@@ -1032,9 +1217,12 @@ function viewVersion(i) {
       stats,
       relaxationsApplied: [],
       edited: !!entry.edited,
+      mode: entry.mode || (plan.type === 'regular' ? 'regular' : 'monthly'),
+      aliasAssign: entry.aliasAssign ? deepClone(entry.aliasAssign) : {},
     };
     state.currentIdx = i;
     state.swapSel = null;
+    state.showRealNames = false;
     state.undoStack = [];
     state.redoStack = [];
     render();
@@ -1130,11 +1318,12 @@ function revalidate() {
   res.stats = stats;
 }
 
-function syncCurrentVersion() {
+function syncCurrentVersion(markEdited = true) {
   const entry = state.history[state.currentIdx];
   if (!entry) return;
   entry.rounds = deepClone(state.result.rounds);
-  entry.edited = true;
+  if (state.result.aliasAssign) entry.aliasAssign = deepClone(state.result.aliasAssign);
+  if (markEdited) entry.edited = true;
   persistAll();
 }
 
