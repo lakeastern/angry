@@ -8,7 +8,7 @@ export function costOf(schedule, plan) {
   return [
     st.structural.length * 10 + st.partnerRepeats, // 하드 (항상 0이어야 함)
     st.consecutiveSits * 2 + st.spreadPenalty * 2, // 준하드: 연속 결장 + 게임 수 편차
-    st.topRankMiss, // 2라운드 상위 랭커(참석자 기준 top-4) 동성복식 보장
+    st.rankerMiss, // 랭커 라운드: 상위 풀 멤버로 구성된 랭커 게임 보장
     st.diffCapViolations + st.meetCapViolations, // 점수차·같은 상대 상한(설정) 위반
     st.rotationMiss + st.newMemberLessonMiss, // 레슨 로테이션(정기)
     st.mixedUncovered, // 월례 인당 혼복 1회

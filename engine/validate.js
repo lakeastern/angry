@@ -242,22 +242,51 @@ export function computeStats(schedule, plan) {
     }
   }
 
-  // 2라운드 상위 랭커 동성복식 우선 규칙(정기): 참석자 기준 상대 순위 top-4의 미편성 인원 수
-  let topRankMiss = 0;
-  if (schedule.type === 'regular' && schedule.rounds.length >= 2) {
-    const rd2 = schedule.rounds[1];
-    for (const g of ['M', 'W']) {
-      const tops = plan.players
-        .filter((p) => p.gender === g && !p.unavailable.has(1))
-        .sort((a, b) => a.score - b.score)
-        .slice(0, 4);
-      if (tops.length < 4) continue; // 동성복식 한 게임(4명)을 채울 수 없으면 규칙 미적용
-      for (const p of tops) {
-        const inSameGender = rd2.games.some((game) => {
+  // 랭커 라운드 규칙(정기): 각 랭커 라운드에 "상위 풀 멤버로만 구성된 랭커 게임"이 있는지 측정.
+  // 풀 기준(동성: 상위 5명 / 혼복: 남녀 각 상위 3명)이라 랜덤 선정과 달라도 풀 안이면 무벌점 —
+  // 수동 스왑으로 풀 내 교체를 허용하기 위함.
+  let rankerMiss = 0;
+  if (schedule.type === 'regular') {
+    const poolOf = (g, r, size) =>
+      new Set(
+        plan.players
+          .filter((p) => p.gender === g && !p.unavailable.has(r))
+          .sort((a, b) => a.score - b.score)
+          .slice(0, size)
+          .map((p) => p.id)
+      );
+    for (const rn of opt.rankerRounds || []) {
+      const r = rn - 1;
+      const rd = schedule.rounds[r];
+      if (!rd) continue;
+      if (mixedRounds.includes(rn)) {
+        const pm = poolOf('M', r, 3);
+        const pw = poolOf('W', r, 3);
+        if (pm.size < 2 || pw.size < 2) continue;
+        let best = 4;
+        for (const game of rd.games) {
           const all = [...game.teams[0], ...game.teams[1]];
-          return all.includes(p.id) && all.every((id) => byId.has(id) && byId.get(id).gender === g);
-        });
-        if (!inSameGender) topRankMiss++;
+          if (!all.every((id) => byId.has(id))) continue;
+          const men = all.filter((id) => byId.get(id).gender === 'M');
+          const women = all.filter((id) => byId.get(id).gender === 'W');
+          if (men.length !== 2 || women.length !== 2) continue;
+          const hit = men.filter((id) => pm.has(id)).length + women.filter((id) => pw.has(id)).length;
+          best = Math.min(best, 4 - hit);
+        }
+        rankerMiss += best;
+      } else {
+        for (const g of ['M', 'W']) {
+          const pool = poolOf(g, r, 5);
+          if (pool.size < 4) continue;
+          let best = 4;
+          for (const game of rd.games) {
+            const all = [...game.teams[0], ...game.teams[1]];
+            if (!all.every((id) => byId.has(id) && byId.get(id).gender === g)) continue;
+            const hit = all.filter((id) => pool.has(id)).length;
+            best = Math.min(best, 4 - hit);
+          }
+          rankerMiss += best;
+        }
       }
     }
   }
@@ -311,7 +340,7 @@ export function computeStats(schedule, plan) {
     perPlayer: per,
     scoreDiffSq,
     earlyTightness,
-    topRankMiss,
+    rankerMiss,
     diffCapViolations,
     diffCapList,
     partnerCount,

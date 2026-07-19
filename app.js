@@ -20,6 +20,7 @@ const state = {
     maxMeet: 2,
     tightRounds: [1, 2, 3],
     mixedRounds: [1, 3],
+    rankerRounds: [2],
     allowConsecutiveSit: false,
     allowPartnerRepeat: false,
     ignoreGender: false,
@@ -416,6 +417,9 @@ function renderSettings() {
   const tightChips = roundNums
     .map((n) => `<span class="xr ${(s.tightRounds || []).includes(n) ? 'on' : ''}" data-tgr="${n}">${n}</span>`)
     .join('');
+  const rankerChips = roundNums
+    .map((n) => `<span class="xr ${(s.rankerRounds || []).includes(n) ? 'on' : ''}" data-rkr="${n}">${n}</span>`)
+    .join('');
   return `
   <section class="card no-print">
     <h2>② 모임 설정</h2>
@@ -435,10 +439,12 @@ function renderSettings() {
         <span class="hint">한 게임의 두 팀 합산 점수 차이를 이 값 이하로 제한</span>
         <label>같은 상대 상한 <select id="opt-maxmeet">${meetOpts}</select></label>
         <span class="hint">같은 상대와 만나는 횟수를 이 값 이하로 제한 (기본 2번)</span>
-        <label>혼복 선호 라운드 <span style="display:inline-block;vertical-align:middle">${mixedChips}</span></label>
+        <label>혼복 위주 라운드 <span style="display:inline-block;vertical-align:middle">${mixedChips}</span></label>
         <span class="hint">선택한 라운드는 혼복 위주, 나머지는 남복/여복 위주 (정기모임 전용, 기본 1·3)</span>
-        <label>빡겜 라운드 <span style="display:inline-block;vertical-align:middle">${tightChips}</span></label>
-        <span class="hint">선택한 라운드는 비슷한 실력끼리 한 게임에 배정 (팀은 균형 분할, 기본 1·2·3). 특히 2라운드는 남복/여복 상위 랭커(1~4위)끼리 우선 편성됩니다</span>
+        <label>라이벌 라운드 <span style="display:inline-block;vertical-align:middle">${tightChips}</span></label>
+        <span class="hint">선택한 라운드는 비슷한 실력끼리 한 게임에 배정 — 팀은 균형 분할 (기본 1·2·3)</span>
+        <label>랭커 라운드 <span style="display:inline-block;vertical-align:middle">${rankerChips}</span></label>
+        <span class="hint">선택한 라운드는 상위 랭커끼리 게임 — 남복/여복은 상위 5명 중 4명, 혼복(혼복 위주 라운드와 겹칠 때)은 남녀 각 상위 3명 중 2명을 매번 랜덤 선정 (기본 2)</span>
         <label><input type="checkbox" id="opt-consec" ${s.allowConsecutiveSit ? 'checked' : ''}> 연속 결장(레슨/대기) 허용</label>
         <span class="hint">인원이 많아 연속 결장이 불가피할 때 수동으로 허용</span>
         <label><input type="checkbox" id="opt-partner" ${s.allowPartnerRepeat ? 'checked' : ''}> 파트너 중복 허용</label>
@@ -850,6 +856,7 @@ function bindSettings() {
     );
   roundListToggle('mxr', 'mixedRounds');
   roundListToggle('tgr', 'tightRounds');
+  roundListToggle('rkr', 'rankerRounds');
   const chk = (id, key) => {
     const el = $(id);
     if (el) el.addEventListener('change', () => { state.settings[key] = el.checked; persistAll(); });
@@ -948,6 +955,7 @@ function buildConfig(seed) {
       maxMeet: s.maxMeet,
       tightRounds: s.tightRounds,
       mixedRounds: s.mixedRounds,
+      rankerRounds: s.rankerRounds,
       allowConsecutiveSit: s.allowConsecutiveSit,
       allowPartnerRepeat: s.allowPartnerRepeat,
       ignoreGender: s.ignoreGender,

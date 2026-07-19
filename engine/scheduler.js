@@ -19,11 +19,44 @@ import { validateSchedule } from './validate.js';
 export { SchedulerError } from './planner.js';
 export { validateSchedule, computeStats } from './validate.js';
 
+// 랭커 라운드 멤버 선정: 생성당 1회, 시드 rng로 랜덤 (재시도 간 고정 → 매 생성마다 조합이 달라짐)
+// 동성복식 랭커: 참석자 상위 5명 풀에서 4명 / 혼복 랭커(혼복 위주 라운드와 겹칠 때): 남녀 각 상위 3명 풀에서 2명
+function pickRankers(plan, rng) {
+  const picks = {};
+  if (plan.type !== 'regular') return picks;
+  for (const rn of plan.options.rankerRounds) {
+    const r = rn - 1;
+    if (r < 0 || r >= plan.R) continue;
+    const poolOf = (arr, size) =>
+      arr.filter((p) => !p.unavailable.has(r)).sort((a, b) => a.score - b.score).slice(0, size);
+    if (plan.options.mixedRounds.includes(rn)) {
+      const pm = poolOf(plan.men, 3);
+      const pw = poolOf(plan.women, 3);
+      if (pm.length >= 2 && pw.length >= 2) {
+        picks[r] = {
+          type: 'mixed',
+          men: rng.shuffle(pm).slice(0, 2).map((p) => p.id),
+          women: rng.shuffle(pw).slice(0, 2).map((p) => p.id),
+        };
+      }
+    } else {
+      const entry = { type: 'same', men: [], women: [] };
+      const pm = poolOf(plan.men, 5);
+      if (pm.length >= 4) entry.men = rng.shuffle(pm).slice(0, 4).map((p) => p.id);
+      const pw = poolOf(plan.women, 5);
+      if (pw.length >= 4) entry.women = rng.shuffle(pw).slice(0, 4).map((p) => p.id);
+      if (entry.men.length || entry.women.length) picks[r] = entry;
+    }
+  }
+  return picks;
+}
+
 export function generateSchedule(config) {
   const plan = buildPlan(config);
   const seed = Number.isFinite(config.seed) ? config.seed >>> 0 : 20260718;
   const rng = makeRng(seed || 1);
   const budget = Object.assign({ restarts: 24, iters: 500, polish: 1500 }, config.searchBudget || {});
+  const rankerPicks = pickRankers(plan, rng);
 
   // 완화 사다리: 엄격 → 연속 결장 허용 → 파트너 중복 최소화. 앞 단계가 전멸했을 때만 다음 단계로.
   // 설정에서 강제로 허용한 항목은 첫 단계부터 켠 채 시작한다.
@@ -60,7 +93,7 @@ export function generateSchedule(config) {
   let usedStage = null;
   for (const stage of stages) {
     for (let i = 0; i < budget.restarts; i++) {
-      const s = constructSchedule(plan, rng, stage.opts);
+      const s = constructSchedule(plan, rng, { ...stage.opts, rankerPicks });
       if (!s) continue;
       hillClimb(s, plan, rng, budget.iters);
       const c = costOf(s, plan);

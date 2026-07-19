@@ -27,17 +27,61 @@ test('남7 여5 정기 5라운드 — 기준 케이스', () => {
   assert.equal(cOf(1), 0, '2라운드는 동성복식이어야 함');
 });
 
-test('2라운드는 남복/여복 상위 랭커(1~4위)끼리 우선 편성', () => {
+const gameIds = (g) => [...g.teams[0], ...g.teams[1]];
+
+test('랭커 라운드(기본 2) — 남복/여복이 상위 5명 풀에서 4명으로 구성', () => {
   for (const [M, W] of [[7, 5], [6, 6], [8, 6]]) {
     const res = generateSchedule({ type: 'regular', rounds: 5, players: mk(M, W), seed: 42 });
     const r2 = res.rounds[1];
     const mm = r2.games.find((g) => g.type === 'MM');
     const ww = r2.games.find((g) => g.type === 'WW');
     assert.ok(mm && ww, `남${M}여${W}: 2라운드에 남복·여복이 있어야 함`);
-    assert.deepEqual([...mm.teams[0], ...mm.teams[1]].sort(), ['m1', 'm2', 'm3', 'm4'], `남${M}여${W}: 2라운드 남복은 남자 1~4위`);
-    assert.deepEqual([...ww.teams[0], ...ww.teams[1]].sort(), ['w1', 'w2', 'w3', 'w4'], `남${M}여${W}: 2라운드 여복은 여자 1~4위`);
-    assert.equal(res.stats.topRankMiss, 0);
+    const top5m = ['m1', 'm2', 'm3', 'm4', 'm5'];
+    const top5w = ['w1', 'w2', 'w3', 'w4', 'w5'];
+    assert.ok(gameIds(mm).every((id) => top5m.includes(id)), `남${M}여${W}: 남복 랭커 게임은 상위 5명 풀 안에서`);
+    assert.ok(gameIds(ww).every((id) => top5w.includes(id)), `남${M}여${W}: 여복 랭커 게임은 상위 5명 풀 안에서`);
+    assert.equal(res.stats.rankerMiss, 0);
   }
+});
+
+test('랭커 라운드 — 시드에 따라 풀 내 조합이 달라짐 (랜덤 선정)', () => {
+  const combos = new Set();
+  for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const res = generateSchedule({ type: 'regular', rounds: 5, players: mk(7, 5), seed });
+    const mm = res.rounds[1].games.find((g) => g.type === 'MM');
+    combos.add(gameIds(mm).sort().join(','));
+  }
+  assert.ok(combos.size >= 2, `8개 시드에서 남복 조합이 ${combos.size}가지 — 랜덤 선정이면 2가지 이상이어야 함`);
+});
+
+test('혼복 랭커 라운드 — 남녀 각 상위 3명 풀에서 2명씩', () => {
+  const res = generateSchedule({
+    type: 'regular', rounds: 5, players: mk(7, 5), seed: 11,
+    options: { mixedRounds: [2, 4], rankerRounds: [2] },
+  });
+  const r2 = res.rounds[1];
+  const top3m = ['m1', 'm2', 'm3'];
+  const top3w = ['w1', 'w2', 'w3'];
+  const rankerGame = r2.games.find((g) => {
+    if (g.type !== 'MX') return false;
+    const men = gameIds(g).filter((id) => id.startsWith('m'));
+    const women = gameIds(g).filter((id) => id.startsWith('w'));
+    return men.every((id) => top3m.includes(id)) && women.every((id) => top3w.includes(id));
+  });
+  assert.ok(rankerGame, '2라운드에 상위 3명 풀 기반 혼복 랭커 게임이 있어야 함');
+  assert.equal(res.stats.rankerMiss, 0);
+});
+
+test('랭커 라운드 위치 변경 [4] — 4라운드에 동성 랭커 게임', () => {
+  const res = generateSchedule({
+    type: 'regular', rounds: 5, players: mk(7, 5), seed: 21,
+    options: { rankerRounds: [4] },
+  });
+  const r4 = res.rounds[3];
+  const mm = r4.games.find((g) => g.type === 'MM');
+  assert.ok(mm, '4라운드에 남복이 있어야 함');
+  assert.ok(gameIds(mm).every((id) => ['m1', 'm2', 'm3', 'm4', 'm5'].includes(id)));
+  assert.equal(res.stats.rankerMiss, 0);
 });
 
 test('혼복 선호 라운드 변경 — mixedRounds [1,5]', () => {
@@ -65,8 +109,8 @@ test('코트 배정 다양화 — 남복이 한 코트에만 몰리지 않음', 
   assert.ok(mmCourts.size >= 2, `남복 코트 분포가 ${[...mmCourts].join(',')}뿐 — 2개 이상이어야 함`);
 });
 
-test('2라운드 상위 랭커는 참석자 기준 상대 순위 top-4 (상위권 불참 시)', () => {
-  // 남자 2위, 여자 2·5위 불참 상황 — 참석자 중 상위 4명이 2라운드 동성복식에 나와야 함
+test('랭커 라운드 상대 순위 적용 — 상위권 불참 시 참석자 기준 풀', () => {
+  // 남자 2위, 여자 2·5위 불참 — 풀은 참석자 상위 5명
   const men = [1, 3, 4, 5, 6, 7, 8].map((s) => ({ id: `m${s}`, name: `남${s}`, gender: 'M', score: s }));
   const women = [1, 3, 4, 6, 7, 8, 9].map((s) => ({ id: `w${s}`, name: `여${s}`, gender: 'W', score: s }));
   const res = generateSchedule({ type: 'regular', rounds: 5, players: [...men, ...women], seed: 42 });
@@ -74,9 +118,9 @@ test('2라운드 상위 랭커는 참석자 기준 상대 순위 top-4 (상위�
   const mm = r2.games.find((g) => g.type === 'MM');
   const ww = r2.games.find((g) => g.type === 'WW');
   assert.ok(mm && ww, '2라운드에 남복·여복이 있어야 함');
-  assert.deepEqual([...mm.teams[0], ...mm.teams[1]].sort(), ['m1', 'm3', 'm4', 'm5']);
-  assert.deepEqual([...ww.teams[0], ...ww.teams[1]].sort(), ['w1', 'w3', 'w4', 'w6']);
-  assert.equal(res.stats.topRankMiss, 0);
+  assert.ok(gameIds(mm).every((id) => ['m1', 'm3', 'm4', 'm5', 'm6'].includes(id)), '남복은 참석 남자 상위 5명 풀 안에서');
+  assert.ok(gameIds(ww).every((id) => ['w1', 'w3', 'w4', 'w6', 'w7'].includes(id)), '여복은 참석 여자 상위 5명 풀 안에서');
+  assert.equal(res.stats.rankerMiss, 0);
 });
 
 test('빡겜 — 초반 3라운드는 게임 내 실력 폭이 후반보다 좁다', () => {

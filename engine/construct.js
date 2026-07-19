@@ -24,18 +24,12 @@ export function constructSchedule(plan, rng, opts = {}) {
     mixed.set(p.id, 0);
   }
 
-  // 2라운드 상위 랭커: 참석자(2라운드 가용자) 기준 성별 상대 순위 top-4
-  // (명단 절대 순위가 아님 — 상위권 일부가 불참해도 참석자 중 상위 4명으로 적용)
-  const top4 = new Set();
-  if (plan.type === 'regular' && plan.R >= 2) {
-    for (const pool of [plan.men, plan.women]) {
-      pool
-        .filter((p) => !p.unavailable.has(1))
-        .sort((a, b) => a.score - b.score)
-        .slice(0, 4)
-        .forEach((p) => top4.add(p.id));
-    }
-  }
+  // 랭커 라운드 선정 멤버 (scheduler에서 생성당 1회 랜덤 선정)
+  const rankerPicks = opts.rankerPicks || {};
+  const rankerIdsOf = (r) => {
+    const pk = rankerPicks[r];
+    return pk ? new Set([...pk.men, ...pk.women]) : null;
+  };
 
   const rounds = [];
 
@@ -55,7 +49,7 @@ export function constructSchedule(plan, rng, opts = {}) {
     if (fitting.length) comps = fitting;
     else if (!allowConsecutiveSit) return null;
 
-    // 라운드 목표 혼복 수: 정기는 혼복 선호 라운드(설정, 기본 2·4)에서 최대, 그 외 최소. 월례는 커버리지 긴급도만큼.
+    // 라운드 목표 혼복 수: 정기는 혼복 위주 라운드(설정, 기본 1·3)에서 최대, 그 외 최소. 월례는 커버리지 긴급도만큼.
     const cVals = comps.map((cp) => cp.c);
     const cMin = Math.min(...cVals);
     const cMax = Math.max(...cVals);
@@ -89,13 +83,15 @@ export function constructSchedule(plan, rng, opts = {}) {
       .sort((a, b) => a.s - b.s)
       .map((o) => o.cp);
 
-    // 빡겜 라운드는 실력 인접 4명 청크 구성을 우선 시도, 실패 시 일반 구성으로 폴백
+    // 라이벌 라운드는 실력 인접 4명 청크 구성을 우선 시도, 실패 시 일반 구성으로 폴백
     const tight = tightRounds.includes(r + 1);
-    // 2라운드 특별 규칙(정기): 남복/여복 상위 랭커(1~4위)끼리 게임 우선
-    const topRankRound = plan.type === 'regular' && r === 1;
+    // 랭커 라운드: 선정된 상위 랭커끼리 게임 우선
+    const ranker = rankerPicks[r] || null;
+    const rankerIds = ranker ? new Set([...ranker.men, ...ranker.women]) : null;
     let built = null;
     for (const comp of ranked) {
-      if (tight) built = tryBuildRoundTight(comp);
+      // 랭커 라운드는 랜덤 선정 멤버를 써야 하므로 실력순 청크(tight) 대신 랭커 조립 경로 사용
+      if (tight && !ranker) built = tryBuildRoundTight(comp);
       if (!built) built = tryBuildRound(comp);
       if (built) break;
     }
@@ -149,14 +145,46 @@ export function constructSchedule(plan, rng, opts = {}) {
       const playingM = availM.filter((p) => !sitIds.has(p.id));
       const playingW = availW.filter((p) => !sitIds.has(p.id));
 
-      // 2) 혼복 인원 선발 + 페어링 (실패 시 혼복 인원을 바꿔 재시도)
+      // 2) 랭커 게임 우선 조립 → 혼복 인원 선발 + 페어링 (실패 시 인원을 바꿔 재시도)
       for (let attempt = 0; attempt < 4; attempt++) {
-        const mxMen = pickTop(playingM, 2 * comp.c, mxScore);
-        const mxWomen = pickTop(playingW, 2 * comp.c, mxScore);
+        // 랭커 라운드: 선정 멤버로 랭커 게임을 먼저 만든다 (불가하면 일반 구성으로 폴백)
+        const pre = { mm: null, ww: null, mx: null };
+        const usedIds = new Set();
+        if (ranker) {
+          const playingIds = new Set([...playingM, ...playingW].map((p) => p.id));
+          const resolve = (ids, pool) => ids.map((id) => pool.find((p) => p.id === id));
+          if (ranker.type === 'same') {
+            if (ranker.men.length === 4 && comp.a >= 1 && ranker.men.every((id) => playingIds.has(id))) {
+              const g = chunkGameSame(resolve(ranker.men, playingM).sort((a, b) => a.score - b.score), 'MM');
+              if (g) {
+                pre.mm = g;
+                ranker.men.forEach((id) => usedIds.add(id));
+              }
+            }
+            if (ranker.women.length === 4 && comp.b >= 1 && ranker.women.every((id) => playingIds.has(id))) {
+              const g = chunkGameSame(resolve(ranker.women, playingW).sort((a, b) => a.score - b.score), 'WW');
+              if (g) {
+                pre.ww = g;
+                ranker.women.forEach((id) => usedIds.add(id));
+              }
+            }
+          } else if (comp.c >= 1 && [...ranker.men, ...ranker.women].every((id) => playingIds.has(id))) {
+            const g = chunkGameMixed(resolve(ranker.men, playingM), resolve(ranker.women, playingW));
+            if (g) {
+              pre.mx = g;
+              [...ranker.men, ...ranker.women].forEach((id) => usedIds.add(id));
+            }
+          }
+        }
+        const remM = playingM.filter((p) => !usedIds.has(p.id));
+        const remW = playingW.filter((p) => !usedIds.has(p.id));
+        const mxNeed = 2 * comp.c - (pre.mx ? 2 : 0);
+        const mxMen = pickTop(remM, mxNeed, mxScore);
+        const mxWomen = pickTop(remW, mxNeed, mxScore);
         const mxMenIds = new Set(mxMen.map((p) => p.id));
         const mxWomenIds = new Set(mxWomen.map((p) => p.id));
-        const mmPool = playingM.filter((p) => !mxMenIds.has(p.id));
-        const wwPool = playingW.filter((p) => !mxWomenIds.has(p.id));
+        const mmPool = remM.filter((p) => !mxMenIds.has(p.id));
+        const wwPool = remW.filter((p) => !mxWomenIds.has(p.id));
 
         const mmPairs = pairUpSame(mmPool);
         if (!mmPairs) continue;
@@ -172,8 +200,11 @@ export function constructSchedule(plan, rng, opts = {}) {
         if (!mmGames || !wwGames || !mxGames) continue;
 
         const gamesOut = [
+          ...(pre.mm ? [pre.mm] : []),
           ...mmGames.map((t) => ({ type: 'MM', teams: t })),
+          ...(pre.ww ? [pre.ww] : []),
           ...wwGames.map((t) => ({ type: 'WW', teams: t })),
+          ...(pre.mx ? [pre.mx] : []),
           ...mxGames.map((t) => ({ type: 'MX', teams: t })),
         ];
         return { games: gamesOut, sitters: [...sitM, ...sitW] };
@@ -181,7 +212,7 @@ export function constructSchedule(plan, rng, opts = {}) {
       return null;
     }
 
-    // 빡겜 구성: 실력순 인접 4명(혼복은 남2+여2)이 한 게임이 되도록 청크 분할
+    // 라이벌 라운드 구성: 실력순 인접 4명(혼복은 남2+여2)이 한 게임이 되도록 청크 분할
     function tryBuildRoundTight(comp) {
       const sitM = pickSitters(availM, availM.length - comp.m);
       if (!sitM) return null;
@@ -283,10 +314,11 @@ export function constructSchedule(plan, rng, opts = {}) {
       if (plan.type === 'regular' && r < 3 && !lessoned.has(p.id)) s += 30;
       if (plan.type === 'regular' && p.prefs.newMember && sits.get(p.id) === 0) s += 20;
       if (p.prefs.gamePriority) s -= 35;
-      if (topRankRound && top4.has(p.id)) s -= 60;
-      // 1라운드 선행 배치: 상위 랭커는 1라운드에 결장(레슨)해 두면
-      // 연속 결장 금지에 의해 2라운드 출전이 보장된다
-      if (plan.type === 'regular' && r === 0 && plan.R >= 2 && top4.has(p.id)) s += 40;
+      if (rankerIds && rankerIds.has(p.id)) s -= 60;
+      // 선행 배치: 다음 라운드 랭커 멤버는 이번 라운드에 결장(레슨)해 두면
+      // 연속 결장 금지에 의해 다음 라운드 출전이 보장된다 (이번 라운드도 랭커 라운드면 생략)
+      const nextRanker = rankerPicks[r + 1];
+      if (!ranker && nextRanker && rankerIdsOf(r + 1).has(p.id)) s += 40;
       s += rng.jitter(8);
       return s;
     }
@@ -297,7 +329,8 @@ export function constructSchedule(plan, rng, opts = {}) {
       let s = 0;
       if (plan.type === 'monthly' && mixed.get(p.id) === 0) s += 50;
       if (plan.type === 'regular' && p.prefs.mixedPreferred) s += 50;
-      if (topRankRound && top4.has(p.id)) s -= 80;
+      // 동성복식 랭커 멤버는 혼복 후순위, 혼복 랭커 멤버는 혼복 우선
+      if (ranker && rankerIds.has(p.id)) s += ranker.type === 'mixed' ? 120 : -120;
       s += rng.jitter(20);
       return s;
     }
