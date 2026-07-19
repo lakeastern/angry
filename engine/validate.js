@@ -206,14 +206,15 @@ export function computeStats(schedule, plan) {
     }
   }
 
-  // 월례: 인당 혼복 1회
+  // 게임데이: 인당 최소 혼복 게임 수 (기본 1). 부족분 합을 비용으로.
+  const minMixed = schedule.type === 'monthly' ? (opt.minMixedGames || 0) : 0;
   let mixedUncovered = 0;
   const mixedUncoveredIds = [];
-  if (schedule.type === 'monthly' && plan.M > 0 && plan.W > 0) {
+  if (minMixed > 0 && plan.M > 0 && plan.W > 0) {
     for (const p of plan.players) {
       const s = per.get(p.id);
-      if (s.games > 0 && s.mixed === 0) {
-        mixedUncovered++;
+      if (s.games > 0 && s.mixed < minMixed) {
+        mixedUncovered += minMixed - s.mixed;
         mixedUncoveredIds.push(p.id);
       }
     }
@@ -411,9 +412,10 @@ export function validateSchedule(schedule, plan) {
   }
 
   if (stats.mixedUncovered > 0) {
+    const minMixed = plan.options ? plan.options.minMixedGames : 1;
     warnings.push({
       code: 'W_MIXED_UNCOVERED',
-      message: `혼복 게임을 한 번도 하지 못한 인원: ${stats.mixedUncoveredIds.map(label).join(', ')}`,
+      message: `혼복 게임이 최소 ${minMixed}회에 못 미친 인원: ${stats.mixedUncoveredIds.map(label).join(', ')}`,
     });
   }
 

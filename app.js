@@ -18,6 +18,7 @@ const state = {
     gamesPerPerson: 4,
     maxDiff: null,
     maxMeet: 2,
+    minMixedGames: 1,
     tightRounds: [1, 2, 3],
     mixedRounds: [1, 3],
     rankerRounds: [2],
@@ -406,10 +407,13 @@ function renderRoster() {
 
 function renderSettings() {
   const s = state.settings;
+  const isReg = s.meetingType === 'regular';
   const diffOpts = [['', '제한 없음'], ['1', '1점'], ['2', '2점'], ['3', '3점'], ['4', '4점'], ['5', '5점']]
     .map(([v, t]) => `<option value="${v}" ${String(s.maxDiff ?? '') === v ? 'selected' : ''}>${t}</option>`).join('');
   const meetOpts = [['', '제한 없음'], ['1', '1번'], ['2', '2번'], ['3', '3번'], ['4', '4번']]
     .map(([v, t]) => `<option value="${v}" ${String(s.maxMeet ?? '') === v ? 'selected' : ''}>${t}</option>`).join('');
+  const minMixedOpts = [['0', '없음'], ['1', '1회'], ['2', '2회'], ['3', '3회'], ['4', '4회']]
+    .map(([v, t]) => `<option value="${v}" ${String(s.minMixedGames ?? 1) === v ? 'selected' : ''}>${t}</option>`).join('');
   const roundNums = Array.from({ length: Math.max(1, Math.min(12, s.rounds)) }, (_, i) => i + 1);
   const mixedChips = roundNums
     .map((n) => `<span class="xr ${(s.mixedRounds || []).includes(n) ? 'on' : ''}" data-mxr="${n}">${n}</span>`)
@@ -425,7 +429,7 @@ function renderSettings() {
     <h2>② 모임 설정</h2>
     <div class="row">
       <label class="radio"><input type="radio" name="mtype" value="regular" ${s.meetingType === 'regular' ? 'checked' : ''}> 정기모임 (a·b 게임 + c 레슨)</label>
-      <label class="radio"><input type="radio" name="mtype" value="monthly" ${s.meetingType === 'monthly' ? 'checked' : ''}> 월례대회 (3코트 게임)</label>
+      <label class="radio"><input type="radio" name="mtype" value="monthly" ${s.meetingType === 'monthly' ? 'checked' : ''}> 게임데이 (3코트 게임)</label>
     </div>
     <div class="row" style="margin-top:8px">
       ${s.meetingType === 'regular'
@@ -439,12 +443,17 @@ function renderSettings() {
         <span class="hint">한 게임의 두 팀 합산 점수 차이를 이 값 이하로 제한</span>
         <label>같은 상대 상한 <select id="opt-maxmeet">${meetOpts}</select></label>
         <span class="hint">같은 상대와 만나는 횟수를 이 값 이하로 제한 (기본 2번)</span>
+        ${!isReg ? `
+        <label>인당 최소 혼복 게임 수 <select id="opt-minmixed">${minMixedOpts}</select></label>
+        <span class="hint">게임데이에서 모든 참가자가 최소 이 횟수만큼 혼복을 하도록 배정 (기본 1회, '없음'이면 미적용)</span>` : ''}
+        ${isReg ? `
         <label>혼복 위주 라운드 <span style="display:inline-block;vertical-align:middle">${mixedChips}</span></label>
-        <span class="hint">선택한 라운드는 혼복 위주, 나머지는 남복/여복 위주 (정기모임 전용, 기본 1·3)</span>
+        <span class="hint">선택한 라운드는 혼복 위주, 나머지는 남복/여복 위주 (기본 1·3)</span>` : ''}
         <label>라이벌 라운드 <span style="display:inline-block;vertical-align:middle">${tightChips}</span></label>
         <span class="hint">선택한 라운드는 비슷한 실력끼리 한 게임에 배정 — 팀은 균형 분할 (기본 1·2·3)</span>
+        ${isReg ? `
         <label>랭커 라운드 <span style="display:inline-block;vertical-align:middle">${rankerChips}</span></label>
-        <span class="hint">선택한 라운드는 상위 랭커끼리 게임 — 남복/여복은 상위 5명 중 4명, 혼복(혼복 위주 라운드와 겹칠 때)은 남녀 각 상위 3명 중 2명을 매번 랜덤 선정 (기본 2)</span>
+        <span class="hint">선택한 라운드는 상위 랭커끼리 게임 — 남복/여복은 상위 5명 중 4명, 혼복(혼복 위주 라운드와 겹칠 때)은 남녀 각 상위 3명 중 2명을 매번 랜덤 선정 (기본 2)</span>` : ''}
         <label><input type="checkbox" id="opt-consec" ${s.allowConsecutiveSit ? 'checked' : ''}> 연속 결장(레슨/대기) 허용</label>
         <span class="hint">인원이 많아 연속 결장이 불가피할 때 수동으로 허용</span>
         <label><input type="checkbox" id="opt-partner" ${s.allowPartnerRepeat ? 'checked' : ''}> 파트너 중복 허용</label>
@@ -651,7 +660,7 @@ function renderResult() {
 
   return `
   <section class="card">
-    <h2>${isReg ? '정기모임' : '월례대회'} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span></h2>
+    <h2>${isReg ? '정기모임' : '게임데이'} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span></h2>
     <div class="result-cols">
       <div class="bracket-col">
         <div class="bracket-scroll"><table class="bracket">
@@ -844,6 +853,8 @@ function bindSettings() {
   if (md) md.addEventListener('change', () => { state.settings.maxDiff = md.value === '' ? null : +md.value; persistAll(); });
   const mm = $('#opt-maxmeet');
   if (mm) mm.addEventListener('change', () => { state.settings.maxMeet = mm.value === '' ? null : +mm.value; persistAll(); });
+  const minmx = $('#opt-minmixed');
+  if (minmx) minmx.addEventListener('change', () => { state.settings.minMixedGames = +minmx.value; persistAll(); });
   const roundListToggle = (attr, key) =>
     document.querySelectorAll(`[data-${attr}]`).forEach((el) =>
       el.addEventListener('click', () => {
@@ -953,6 +964,7 @@ function buildConfig(seed) {
     options: {
       maxDiff: s.maxDiff,
       maxMeet: s.maxMeet,
+      minMixedGames: s.minMixedGames,
       tightRounds: s.tightRounds,
       mixedRounds: s.mixedRounds,
       rankerRounds: s.rankerRounds,

@@ -11,7 +11,7 @@ export function costOf(schedule, plan) {
     st.rankerMiss, // 랭커 라운드: 상위 풀 멤버로 구성된 랭커 게임 보장
     st.diffCapViolations + st.meetCapViolations, // 점수차·같은 상대 상한(설정) 위반
     st.rotationMiss + st.newMemberLessonMiss, // 레슨 로테이션(정기)
-    st.mixedUncovered, // 월례 인당 혼복 1회
+    st.mixedUncovered, // 게임데이 인당 최소 혼복 게임 수 부족분 합
     st.earlyTightness, // 빡겜: 같은 게임 4인의 실력 폭 최소화
     // 상대 중복(5순위)과 점수 균형(6순위)은 인접 계층이라 가중 합산으로 묶는다.
     // 사전식으로 완전 분리하면 재대면 1회를 피하려고 점수차 7짜리 게임을 만드는 왜곡이 생긴다.

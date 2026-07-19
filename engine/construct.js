@@ -10,6 +10,8 @@ export function constructSchedule(plan, rng, opts = {}) {
   const maxMeet = plan.options ? plan.options.maxMeet : null;
   const tightRounds = plan.options && Array.isArray(plan.options.tightRounds) ? plan.options.tightRounds : [];
   const mixedRounds = plan.options && plan.options.mixedRounds ? plan.options.mixedRounds : [1, 3];
+  // 게임데이 인당 최소 혼복 게임 수 (정기모임은 0 → 혼복 강제 없음)
+  const minMixed = plan.type === 'monthly' && plan.options ? plan.options.minMixedGames || 0 : 0;
 
   const games = new Map(); // id → 게임 수
   const sits = new Map(); // id → 결장(레슨/대기) 수
@@ -49,7 +51,8 @@ export function constructSchedule(plan, rng, opts = {}) {
     if (fitting.length) comps = fitting;
     else if (!allowConsecutiveSit) return null;
 
-    // 라운드 목표 혼복 수: 정기는 혼복 위주 라운드(설정, 기본 1·3)에서 최대, 그 외 최소. 월례는 커버리지 긴급도만큼.
+    // 라운드 목표 혼복 수: 정기는 혼복 위주 라운드(설정, 기본 1·3)에서 최대, 그 외 최소.
+    // 게임데이는 인당 최소 혼복(minMixed) 달성을 위한 잔여 부족분 기반 긴급도만큼.
     const cVals = comps.map((cp) => cp.c);
     const cMin = Math.min(...cVals);
     const cMax = Math.max(...cVals);
@@ -57,15 +60,13 @@ export function constructSchedule(plan, rng, opts = {}) {
     let cTarget;
     if (plan.type === 'regular') {
       cTarget = isMixedRound ? cMax : cMin;
-    } else {
-      let urgency = 0;
-      if (plan.M > 0 && plan.W > 0) {
-        const uncovM = plan.men.filter((p) => mixed.get(p.id) === 0).length;
-        const uncovW = plan.women.filter((p) => mixed.get(p.id) === 0).length;
-        const needGames = Math.max(Math.ceil(uncovM / 2), Math.ceil(uncovW / 2));
-        urgency = Math.ceil(needGames / (plan.R - r));
-      }
+    } else if (minMixed > 0 && plan.M > 0 && plan.W > 0) {
+      const deficit = (pool) => pool.reduce((acc, p) => acc + Math.max(0, minMixed - mixed.get(p.id)), 0);
+      const needGames = Math.max(Math.ceil(deficit(plan.men) / 2), Math.ceil(deficit(plan.women) / 2));
+      const urgency = Math.ceil(needGames / (plan.R - r));
       cTarget = Math.min(cMax, Math.max(cMin, urgency));
+    } else {
+      cTarget = cMin;
     }
 
     // 남녀 출전 배분 목표: 성별 잔여 게임 부족분(deficit)에 비례
@@ -323,11 +324,11 @@ export function constructSchedule(plan, rng, opts = {}) {
       return s;
     }
 
-    // 혼복 슬롯 우선순위: 월례는 혼복 미경험자, 정기는 혼복선호자.
-    // 2라운드 상위 랭커는 남복/여복에 남도록 혼복 후순위.
+    // 혼복 슬롯 우선순위: 게임데이는 혼복 부족자(부족분 비례), 정기는 혼복선호자.
+    // 랭커 라운드 상위 랭커는 남복/여복에 남도록 혼복 후순위.
     function mxScore(p) {
       let s = 0;
-      if (plan.type === 'monthly' && mixed.get(p.id) === 0) s += 50;
+      if (minMixed > 0 && mixed.get(p.id) < minMixed) s += 50 * (minMixed - mixed.get(p.id));
       if (plan.type === 'regular' && p.prefs.mixedPreferred) s += 50;
       // 동성복식 랭커 멤버는 혼복 후순위, 혼복 랭커 멤버는 혼복 우선
       if (ranker && rankerIds.has(p.id)) s += ranker.type === 'mixed' ? 120 : -120;

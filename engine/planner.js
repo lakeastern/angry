@@ -65,6 +65,8 @@ export function buildPlan(config) {
   const options = Object.assign({}, DEFAULT_OPTIONS, config.options || {});
   options.mixedRounds = Array.isArray(options.mixedRounds) ? options.mixedRounds.map(Number) : [1, 3];
   options.rankerRounds = Array.isArray(options.rankerRounds) ? options.rankerRounds.map(Number) : [2];
+  // 게임데이(monthly) 인당 최소 혼복 게임 수 (0~4, 기본 1, 0이면 미적용). 정기모임에는 미적용
+  options.minMixedGames = Math.max(0, Math.min(4, Number.isFinite(+options.minMixedGames) ? Math.floor(+options.minMixedGames) : 1));
   // 하위 호환: 숫자 n(초반 n라운드)으로 온 경우 [1..n]으로 변환
   if (!Array.isArray(options.tightRounds)) {
     const n = Number(options.tightRounds) || 0;
@@ -196,10 +198,11 @@ export function buildPlan(config) {
     }
   }
 
-  // 월례 혼복 커버리지 목표 (성별 무시 모드에서는 해당 없음)
+  // 게임데이 혼복 커버리지 목표 게임 수 (성별 무시 모드에서는 해당 없음)
+  const minMixed = type === 'monthly' ? options.minMixedGames : 0;
   let mixedNeedTotal = 0;
-  if (type === 'monthly' && M > 0 && W > 0) {
-    mixedNeedTotal = Math.max(Math.ceil(M / 2), Math.ceil(W / 2));
+  if (type === 'monthly' && M > 0 && W > 0 && minMixed > 0) {
+    mixedNeedTotal = Math.max(Math.ceil((M * minMixed) / 2), Math.ceil((W * minMixed) / 2));
   }
 
   return {

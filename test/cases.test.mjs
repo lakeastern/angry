@@ -204,7 +204,7 @@ test('8명 전원 출전인데 남자 홀수(남3 여5) — 사전 에러', () =
   assert.throws(() => generateSchedule({ type: 'regular', rounds: 5, players: mk(3, 5) }), SchedulerError);
 });
 
-test('월례 12명 남자 홀수(남5 여7) — 사전 에러', () => {
+test('게임데이 12명 남자 홀수(남5 여7) — 사전 에러', () => {
   assert.throws(() => generateSchedule({ type: 'monthly', gamesPerPerson: 4, players: mk(5, 7) }), SchedulerError);
 });
 
@@ -215,7 +215,7 @@ test('남6 여3 정기 — 성별 강제 편차는 경고로 알리고 진행', 
   assert.ok(res.warnings.some((w) => w.code === 'W_GAME_SPREAD'), '남자 전원 출전 강제로 게임 수 편차 경고가 있어야 함');
 });
 
-test('월례 남4 여8, 인당 4게임 — 전원 정확히 4게임 + 인당 혼복 1회', () => {
+test('게임데이 남4 여8, 인당 4게임 — 전원 정확히 4게임 + 인당 혼복 1회', () => {
   const res = generateSchedule({ type: 'monthly', gamesPerPerson: 4, players: mk(4, 8), seed: 11 });
   assert.deepEqual(res.errors, []);
   for (const [id, s] of res.stats.perPlayer) {
@@ -224,7 +224,38 @@ test('월례 남4 여8, 인당 4게임 — 전원 정확히 4게임 + 인당 혼
   assert.equal(res.stats.mixedUncovered, 0, '전원 혼복 최소 1회');
 });
 
-test('월례 게임 수가 라운드에 안 나눠떨어지면 빈 코트는 마지막 라운드로', () => {
+test('게임데이 인당 최소 혼복 게임 수 설정 — minMixedGames=2 이면 전원 혼복 2회 이상', () => {
+  const res = generateSchedule({
+    type: 'monthly', gamesPerPerson: 4, players: mk(6, 6), seed: 11,
+    options: { minMixedGames: 2 },
+  });
+  assert.deepEqual(res.errors, []);
+  assert.equal(res.stats.mixedUncovered, 0);
+  for (const [, s] of res.stats.perPlayer) assert.ok(s.mixed >= 2, `혼복 ${s.mixed}회 — 최소 2회 미달`);
+});
+
+test('게임데이 minMixedGames=0 이면 혼복 강제 없음 (동성복식 위주)', () => {
+  const res = generateSchedule({
+    type: 'monthly', gamesPerPerson: 4, players: mk(6, 6), seed: 11,
+    options: { minMixedGames: 0 },
+  });
+  assert.deepEqual(res.errors, []);
+  assert.equal(res.stats.mixedUncovered, 0, 'minMixed=0이면 uncovered는 항상 0');
+  // 혼복 강제가 없으므로 minMixed=2일 때보다 혼복 총량이 적거나 같아야 함
+  const res2 = generateSchedule({ type: 'monthly', gamesPerPerson: 4, players: mk(6, 6), seed: 11, options: { minMixedGames: 2 } });
+  const totalMixed = (r) => [...r.stats.perPlayer.values()].reduce((a, s) => a + s.mixed, 0);
+  assert.ok(totalMixed(res) <= totalMixed(res2), '혼복 강제 없음이 강제 2회보다 혼복이 많을 수 없음');
+});
+
+test('정기모임은 minMixedGames 설정을 무시', () => {
+  const res = generateSchedule({
+    type: 'regular', rounds: 5, players: mk(7, 5), seed: 42,
+    options: { minMixedGames: 3 },
+  });
+  assert.equal(res.stats.mixedUncovered, 0, '정기모임은 혼복 커버리지 강제 없음');
+});
+
+test('게임데이 게임 수가 라운드에 안 나눠떨어지면 빈 코트는 마지막 라운드로', () => {
   // 남4 여6 = 10명 × 4게임 = 40슬롯 → 10게임, 2코트 → 5라운드 (딱 떨어짐: [2,2,2,2,2])
   // 남6 여8 = 14명 × 4게임 = 14게임, 3코트 → 5라운드 → [3,3,3,3,2] (마지막만 부분)
   const res = generateSchedule({ type: 'monthly', gamesPerPerson: 4, players: mk(6, 8), seed: 5 });
@@ -235,7 +266,7 @@ test('월례 게임 수가 라운드에 안 나눠떨어지면 빈 코트는 마
   assert.equal(courts[0], Math.max(...courts), '첫 라운드는 풀코트');
 });
 
-test('월례 남7 여7(14명), 인당 4게임 — 혼복 커버리지 + 게임 수 ±1', () => {
+test('게임데이 남7 여7(14명), 인당 4게임 — 혼복 커버리지 + 게임 수 ±1', () => {
   const res = generateSchedule({ type: 'monthly', gamesPerPerson: 4, players: mk(7, 7), seed: 3 });
   assert.deepEqual(res.errors, []);
   assert.equal(res.stats.spreadPenalty, 0, '게임 수 차이는 1 이하');
