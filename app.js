@@ -1580,7 +1580,8 @@ function generate() {
     const entry = {
       ts: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
       seed: res.seed,
-      config,
+      // 완화(성별 무시 등)가 반영된 유효 옵션으로 저장 — 복원 시 같은 plan을 재구성할 수 있게 한다
+      config: { ...config, options: { ...res.plan.options } },
       rounds: deepClone(res.rounds),
       edited: false,
       mode: state.settings.meetingType,
@@ -1607,11 +1608,32 @@ function generate() {
   if (cards.length) cards[cards.length - 1].scrollIntoView({ behavior: 'smooth' });
 }
 
+// 저장된 버전의 plan 재구성 — 이미 확정된 대진표를 표시만 하므로,
+// 옛 버전에서 완화(성별 무시 등)가 config에 없어 패리티 검사에 막히거나
+// 잡복이 오류로 표시되는 경우 완화 옵션으로 재구성한다.
+function planForEntry(entry) {
+  const relaxed = () => buildPlan({
+    ...entry.config,
+    options: { ...(entry.config.options || {}), ignoreGender: true, allowConsecutiveSit: true, allowPartnerRepeat: true, minMixedGames: 0 },
+  });
+  let plan;
+  try {
+    plan = buildPlan(entry.config);
+  } catch (e) {
+    return relaxed();
+  }
+  // 확정된 대진표에 잡복이 있는데 plan이 성별 구분 모드면 잡복이 오류로 잡히므로 완화 재구성
+  const teamType = (team) => team.map((id) => (plan.byId.has(id) ? plan.byId.get(id).gender : '?')).sort().join('');
+  const hasJapbok = entry.rounds.some((rd) => rd.games.some((g) => g.teams && teamType(g.teams[0]) !== teamType(g.teams[1])));
+  if (hasJapbok && !plan.options.ignoreGender) return relaxed();
+  return plan;
+}
+
 function viewVersion(i) {
   const entry = state.history[i];
   if (!entry) return;
   try {
-    const plan = buildPlan(entry.config);
+    const plan = planForEntry(entry);
     const rounds = deepClone(entry.rounds);
     const schedule = { type: plan.type, rounds };
     const { errors, warnings, stats } = validateSchedule(schedule, plan);
