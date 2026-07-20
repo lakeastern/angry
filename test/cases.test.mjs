@@ -204,8 +204,28 @@ test('8명 전원 출전인데 남자 홀수(남3 여5) — 사전 에러', () =
   assert.throws(() => generateSchedule({ type: 'regular', rounds: 5, players: mk(3, 5) }), SchedulerError);
 });
 
-test('게임데이 12명 남자 홀수(남5 여7) — 사전 에러', () => {
-  assert.throws(() => generateSchedule({ type: 'monthly', gamesPerPerson: 4, players: mk(5, 7) }), SchedulerError);
+test('게임데이 12명 남자 홀수(남5 여7) — 인당 게임 수 우선(잡복 최소 허용)으로 전원 4게임', () => {
+  const res = generateSchedule({ type: 'monthly', gamesPerPerson: 4, players: mk(5, 7), seed: 42 });
+  assert.deepEqual(res.errors, [], '하드 위반은 없어야 함');
+  const counts = [...res.stats.perPlayer.values()].map((s) => s.games);
+  assert.equal(Math.min(...counts), 4);
+  assert.equal(Math.max(...counts), 4, '전원 정확히 4게임');
+  assert.ok(res.stats.japbokGames >= 1, '성비상 잡복이 불가피 → 최소 허용');
+  assert.ok(res.relaxationsApplied.some((r) => r.includes('잡복')), '잡복 완화가 배너에 표시');
+});
+
+test('게임데이 strictGameCount:false면 예전처럼 잡복 없이 구조적 에러', () => {
+  assert.throws(
+    () => generateSchedule({ type: 'monthly', gamesPerPerson: 4, players: mk(5, 7), options: { strictGameCount: false } }),
+    SchedulerError
+  );
+});
+
+test('게임데이 인당 게임 수 우선 — 균형 성비는 잡복 0', () => {
+  const res = generateSchedule({ type: 'monthly', gamesPerPerson: 4, players: mk(6, 6), seed: 42 });
+  assert.equal(res.stats.japbokGames, 0, '균형 성비는 잡복 없이 전원 균등');
+  const counts = [...res.stats.perPlayer.values()].map((s) => s.games);
+  assert.equal(Math.max(...counts) - Math.min(...counts), 0);
 });
 
 test('남6 여3 정기 — 성별 강제 편차는 경고로 알리고 진행', () => {

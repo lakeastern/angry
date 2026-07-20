@@ -5,9 +5,14 @@ import { computeStats } from './validate.js';
 // 우선순위 순서 그대로의 비용 튜플 — 앞 요소부터 비교하므로 가중치 역전이 없다.
 export function costOf(schedule, plan) {
   const st = computeStats(schedule, plan);
+  // 게임데이·앵그리대회(내부 type 'monthly')는 인당 게임 수(균등) 조건이 핵심이라
+  // 하드 제약 바로 아래 독립 계층으로 최우선 배치. 정기모임은 기존대로 연속 결장과 동반.
+  const isMT = plan.type === 'monthly';
   return [
     st.structural.length * 10 + st.partnerRepeats, // 하드 (항상 0이어야 함)
-    st.consecutiveSits * 2 + st.spreadPenalty * 2, // 준하드: 연속 결장 + 게임 수 편차
+    isMT ? st.spreadPenalty : 0, // [게임데이·앵그리대회] 인당 게임 수 편차 최우선
+    st.japbokGames, // 잡복 게임 수 최소화 (성별 무시 편성 시에만 >0, 게임 수 다음으로 중요)
+    st.consecutiveSits * 2 + (isMT ? 0 : st.spreadPenalty * 2), // 연속 결장 (정기는 게임 수 편차 동반)
     st.rankerMiss, // 랭커 라운드: 상위 풀 멤버로 구성된 랭커 게임 보장
     st.diffCapViolations + st.meetCapViolations, // 점수차·같은 상대 상한(설정) 위반
     st.rotationMiss + st.newMemberLessonMiss, // 레슨 로테이션(정기)

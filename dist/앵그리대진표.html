@@ -191,7 +191,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-20 20:19</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-20 22:13</span></div>
 <div id="toast"></div>
 <script>
 'use strict';
@@ -266,6 +266,7 @@ function computeStats(schedule, plan) {
     ? opt.tightRounds
     : Array.from({ length: Math.max(0, Number(opt.tightRounds) || 0) }, (_, i) => i + 1);
   let earlyTightness = 0; // 빡겜 라운드의 게임 내 실력 폭 합
+  let japbokGames = 0; // 실제 성별 기준 잡복 게임 수 (성별 무시 편성 시 최소화 대상)
 
   schedule.rounds.forEach((rd, r) => {
     const seen = new Map(); // id → 배정 횟수 (라운드 내 중복 감지)
@@ -303,6 +304,9 @@ function computeStats(schedule, plan) {
       if (type1 !== type2) {
         structural.push({ code: 'E_JAPBOK', round: r, players: all, message: `${r + 1}라운드 ${game.court}코트가 잡복(${type1} vs ${type2})입니다.` });
       }
+      // 실제 성별 기준 잡복 게임 수 (성별 무시 편성일 때도 진짜 잡복을 집계 — 최소화 대상)
+      const realType = (team) => team.map((id) => byId.get(id).realGender || byId.get(id).gender).sort().join('');
+      if (realType(t1) !== realType(t2)) japbokGames++;
       const actualType = type1 === type2 ? (type1 === 'MW' ? 'MX' : type1) : null;
 
       for (const id of all) {
@@ -576,6 +580,7 @@ function computeStats(schedule, plan) {
     perPlayer: per,
     scoreDiffSq,
     earlyTightness,
+    japbokGames,
     rankerMiss,
     diffCapViolations,
     diffCapList,
@@ -702,6 +707,7 @@ const DEFAULT_OPTIONS = {
   allowConsecutiveSit: false, // 연속 결장 허용 (설정에 의한 강제 완화)
   allowPartnerRepeat: false, // 파트너 중복 허용 (설정에 의한 강제 완화)
   ignoreGender: false, // 성별 구분 없이 편성 (잡복 허용)
+  strictGameCount: true, // 게임데이·앵그리대회: 인당 게임 수를 맞추기 위해 덜 중요한 제약부터 자동 완화(마지막 잡복)
 };
 
 // 입력 형식: { id, name, gender:'M'|'W', score(성별 내 실력 순위, 1=최강),
@@ -1384,9 +1390,14 @@ function constructSchedule(plan, rng, opts = {}) {
 // 우선순위 순서 그대로의 비용 튜플 — 앞 요소부터 비교하므로 가중치 역전이 없다.
 function costOf(schedule, plan) {
   const st = computeStats(schedule, plan);
+  // 게임데이·앵그리대회(내부 type 'monthly')는 인당 게임 수(균등) 조건이 핵심이라
+  // 하드 제약 바로 아래 독립 계층으로 최우선 배치. 정기모임은 기존대로 연속 결장과 동반.
+  const isMT = plan.type === 'monthly';
   return [
     st.structural.length * 10 + st.partnerRepeats, // 하드 (항상 0이어야 함)
-    st.consecutiveSits * 2 + st.spreadPenalty * 2, // 준하드: 연속 결장 + 게임 수 편차
+    isMT ? st.spreadPenalty : 0, // [게임데이·앵그리대회] 인당 게임 수 편차 최우선
+    st.japbokGames, // 잡복 게임 수 최소화 (성별 무시 편성 시에만 >0, 게임 수 다음으로 중요)
+    st.consecutiveSits * 2 + (isMT ? 0 : st.spreadPenalty * 2), // 연속 결장 (정기는 게임 수 편차 동반)
     st.rankerMiss, // 랭커 라운드: 상위 풀 멤버로 구성된 랭커 게임 보장
     st.diffCapViolations + st.meetCapViolations, // 점수차·같은 상대 상한(설정) 위반
     st.rotationMiss + st.newMemberLessonMiss, // 레슨 로테이션(정기)
@@ -1548,11 +1559,94 @@ function pickRankers(plan, rng) {
   return picks;
 }
 
+// 한 plan·opts로 멀티 리스타트 구성 → 최적 스케줄 반환
+function solvePlan(plan, rng, budget, opts) {
+  const rankerPicks = pickRankers(plan, rng);
+  let best = null, bestCost = null;
+  for (let i = 0; i < budget.restarts; i++) {
+    const s = constructSchedule(plan, rng, { ...opts, rankerPicks });
+    if (!s) continue;
+    hillClimb(s, plan, rng, budget.iters);
+    const c = costOf(s, plan);
+    if (!best || cmpCost(c, bestCost) < 0) { best = s; bestCost = c; }
+  }
+  return best;
+}
+
+// 스케줄의 인당 게임 수 편차 (max−min, 출전자 기준)
+function gameSpread(schedule, plan) {
+  const st = computeStats(schedule, plan);
+  const counts = [...st.perPlayer.values()].filter((s) => s.games + s.sits > 0).map((s) => s.games);
+  return counts.length ? Math.max(...counts) - Math.min(...counts) : 0;
+}
+
+// 게임데이·앵그리대회: 인당 게임 수를 맞추기 위해 덜 중요한 제약부터 자동 완화(마지막 잡복)
+function generateStrict(config, seed, rng, budget) {
+  const userOpts = config.options || {};
+  // 완화 사다리 (누적). 각 단계에서 인당 게임 수 편차가 목표치에 도달하면 멈춤.
+  const ladder = [
+    { add: {}, relax: [] },
+    { add: { allowConsecutiveSit: true }, relax: ['연속 결장'] },
+    { add: { allowConsecutiveSit: true, minMixedGames: 0 }, relax: ['연속 결장', '인당 최소 혼복'] },
+    { add: { allowConsecutiveSit: true, minMixedGames: 0, allowPartnerRepeat: true }, relax: ['연속 결장', '인당 최소 혼복', '파트너 중복'] },
+    { add: { allowConsecutiveSit: true, minMixedGames: 0, allowPartnerRepeat: true, ignoreGender: true }, relax: ['연속 결장', '인당 최소 혼복', '파트너 중복', '잡복(성별 무시 편성)'] },
+  ];
+  let best = null, bestSpread = Infinity, bestPlan = null, lastErr = null;
+  for (const stage of ladder) {
+    let plan;
+    try {
+      plan = buildPlan({ ...config, options: { ...userOpts, ...stage.add } });
+    } catch (e) {
+      lastErr = e; // 파리티 불가 등 → 다음(더 완화된) 단계에서 해소
+      continue;
+    }
+    const slots = plan.totalGames * 4;
+    const achievable = slots % plan.N === 0 ? 0 : 1; // 산술적으로 가능한 최소 편차
+    // 잡복 단계는 잡복 최소화를 위해 탐색을 늘린다
+    const stageBudget = stage.add.ignoreGender
+      ? { restarts: budget.restarts * 2, iters: budget.iters * 2, polish: budget.polish }
+      : budget;
+    const s = solvePlan(plan, rng, stageBudget, stage.add);
+    if (!s) continue;
+    const spread = gameSpread(s, plan);
+    if (spread < bestSpread) { best = s; bestSpread = spread; bestPlan = plan; }
+    if (spread <= achievable) break; // 목표 달성 → 더 완화하지 않음
+  }
+  if (!best) throw lastErr || new SchedulerError('대진표를 구성하지 못했습니다. 인원·게임 수 설정을 조정해 주세요.');
+
+  hillClimb(best, bestPlan, rng, budget.polish);
+  const { errors, warnings, stats } = validateSchedule(best, bestPlan);
+  // 실제 발생한 완화만 배너로 표시 (특히 잡복은 게임 수 명시)
+  const applied = [];
+  if (stats.consecutiveSits > 0) applied.push('연속 결장');
+  if (stats.partnerRepeats > 0) applied.push('파트너 중복');
+  if (stats.japbokGames > 0) applied.push(`잡복 ${stats.japbokGames}게임 (불가피)`);
+  const relaxationsApplied = applied.length
+    ? [`인당 게임 수를 맞추기 위해 최소한으로 완화했습니다: ${applied.join(' · ')}`]
+    : [];
+  return {
+    type: bestPlan.type,
+    rounds: best.rounds,
+    seed,
+    plan: bestPlan,
+    errors,
+    warnings: [...bestPlan.planWarnings, ...warnings],
+    stats,
+    relaxationsApplied,
+  };
+}
+
 function generateSchedule(config) {
-  const plan = buildPlan(config);
   const seed = Number.isFinite(config.seed) ? config.seed >>> 0 : 20260718;
   const rng = makeRng(seed || 1);
   const budget = Object.assign({ restarts: 24, iters: 500, polish: 1500 }, config.searchBudget || {});
+
+  // 게임데이·앵그리대회(내부 type 'monthly')는 기본적으로 인당 게임 수 우선(strict) 사다리 사용
+  const isMT = config.type === 'monthly';
+  const strict = isMT && (!config.options || config.options.strictGameCount !== false);
+  if (strict) return generateStrict(config, seed, rng, budget);
+
+  const plan = buildPlan(config);
   const rankerPicks = pickRankers(plan, rng);
 
   // 완화 사다리: 엄격 → 연속 결장 허용 → 파트너 중복 최소화. 앞 단계가 전멸했을 때만 다음 단계로.
@@ -1725,6 +1819,7 @@ const state = {
     allowConsecutiveSit: false,
     allowPartnerRepeat: false,
     ignoreGender: false,
+    strictGameCount: true, // 게임데이·앵그리대회: 인당 게임 수 우선 (필요 시 잡복까지 최소 허용)
   },
   attend: { selectedIds: [], excludeOverrides: {} },
   history: [], // [{ts, seed, config, rounds, summary}] 최신이 앞
@@ -2454,7 +2549,9 @@ function renderSettings() {
         <span class="hint">같은 상대와 만나는 횟수를 이 값 이하로 제한 (기본 2번)</span>
         ${!isReg ? `
         <label>인당 최소 혼복 게임 수 <select id="opt-minmixed">${minMixedOpts}</select></label>
-        <span class="hint">모든 참가자가 최소 이 횟수만큼 혼복을 하도록 배정 (기본 1회, '없음'이면 미적용)</span>` : ''}
+        <span class="hint">모든 참가자가 최소 이 횟수만큼 혼복을 하도록 배정 (기본 1회, '없음'이면 미적용)</span>
+        <label><input type="checkbox" id="opt-strict" ${s.strictGameCount !== false ? 'checked' : ''}> 인당 게임 수 우선</label>
+        <span class="hint">전원이 목표 게임 수를 채우도록 우선 배정. 성비가 크게 치우쳐 불가피할 때만 잡복을 최소한으로 허용합니다 (끄면 잡복 없이 규칙 우선, 대신 게임 수 편차 발생 가능)</span>` : ''}
         ${isReg ? `
         <label>혼복 위주 라운드 <span style="display:inline-block;vertical-align:middle">${mixedChips}</span></label>
         <span class="hint">선택한 라운드는 혼복 위주, 나머지는 남복/여복 위주 (기본 1·3)</span>` : ''}
@@ -3001,6 +3098,7 @@ function bindSettings() {
   chk('#opt-consec', 'allowConsecutiveSit');
   chk('#opt-partner', 'allowPartnerRepeat');
   chk('#opt-nogender', 'ignoreGender');
+  chk('#opt-strict', 'strictGameCount');
 
   const pwSave = $('#pw-save');
   if (pwSave) pwSave.addEventListener('click', async () => {
@@ -3200,6 +3298,7 @@ function buildConfig(seed) {
         allowConsecutiveSit: s.allowConsecutiveSit,
         allowPartnerRepeat: s.allowPartnerRepeat,
         ignoreGender: false,
+        strictGameCount: s.strictGameCount !== false,
       },
       seed,
     };
@@ -3235,6 +3334,7 @@ function buildConfig(seed) {
       allowConsecutiveSit: s.allowConsecutiveSit,
       allowPartnerRepeat: s.allowPartnerRepeat,
       ignoreGender: s.ignoreGender,
+      strictGameCount: s.strictGameCount !== false,
     },
     seed,
   };

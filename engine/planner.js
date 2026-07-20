@@ -17,6 +17,7 @@ export const DEFAULT_OPTIONS = {
   allowConsecutiveSit: false, // 연속 결장 허용 (설정에 의한 강제 완화)
   allowPartnerRepeat: false, // 파트너 중복 허용 (설정에 의한 강제 완화)
   ignoreGender: false, // 성별 구분 없이 편성 (잡복 허용)
+  strictGameCount: true, // 게임데이·앵그리대회: 인당 게임 수를 맞추기 위해 덜 중요한 제약부터 자동 완화(마지막 잡복)
 };
 
 // 입력 형식: { id, name, gender:'M'|'W', score(성별 내 실력 순위, 1=최강),

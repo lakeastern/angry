@@ -14,13 +14,13 @@ function makePlayers(M, W) {
 }
 
 // 사전에 알려진 구조적 불가능 케이스
+// (게임데이·앵그리대회(monthly)는 인당 게임 수 우선(strict)으로 잡복 폴백까지 자동 완화되어
+//  항상 구성 가능. 정기모임(regular)만 잡복 불가라 아래 케이스가 여전히 불가.)
 function expectedInfeasible(type, M, W) {
+  if (type === 'monthly') return false;
   if (M === 1 || W === 1) return true;
   const N = M + W;
-  if (M % 2 === 1) {
-    if (type === 'regular' && N === 8) return true; // 전원 출전 + 남자 홀수
-    if (type === 'monthly' && (N === 8 || N === 12)) return true; // 매 라운드 대기 0명 + 남자 홀수
-  }
+  if (M % 2 === 1 && N === 8) return true; // 전원 출전 + 남자 홀수
   return false;
 }
 

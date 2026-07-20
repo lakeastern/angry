@@ -14,7 +14,7 @@ import { buildPlan, SchedulerError } from './planner.js';
 import { makeRng } from './rng.js';
 import { constructSchedule } from './construct.js';
 import { costOf, cmpCost, hillClimb } from './optimize.js';
-import { validateSchedule } from './validate.js';
+import { validateSchedule, computeStats } from './validate.js';
 
 export { SchedulerError } from './planner.js';
 export { validateSchedule, computeStats } from './validate.js';
@@ -51,11 +51,94 @@ function pickRankers(plan, rng) {
   return picks;
 }
 
+// 한 plan·opts로 멀티 리스타트 구성 → 최적 스케줄 반환
+function solvePlan(plan, rng, budget, opts) {
+  const rankerPicks = pickRankers(plan, rng);
+  let best = null, bestCost = null;
+  for (let i = 0; i < budget.restarts; i++) {
+    const s = constructSchedule(plan, rng, { ...opts, rankerPicks });
+    if (!s) continue;
+    hillClimb(s, plan, rng, budget.iters);
+    const c = costOf(s, plan);
+    if (!best || cmpCost(c, bestCost) < 0) { best = s; bestCost = c; }
+  }
+  return best;
+}
+
+// 스케줄의 인당 게임 수 편차 (max−min, 출전자 기준)
+function gameSpread(schedule, plan) {
+  const st = computeStats(schedule, plan);
+  const counts = [...st.perPlayer.values()].filter((s) => s.games + s.sits > 0).map((s) => s.games);
+  return counts.length ? Math.max(...counts) - Math.min(...counts) : 0;
+}
+
+// 게임데이·앵그리대회: 인당 게임 수를 맞추기 위해 덜 중요한 제약부터 자동 완화(마지막 잡복)
+function generateStrict(config, seed, rng, budget) {
+  const userOpts = config.options || {};
+  // 완화 사다리 (누적). 각 단계에서 인당 게임 수 편차가 목표치에 도달하면 멈춤.
+  const ladder = [
+    { add: {}, relax: [] },
+    { add: { allowConsecutiveSit: true }, relax: ['연속 결장'] },
+    { add: { allowConsecutiveSit: true, minMixedGames: 0 }, relax: ['연속 결장', '인당 최소 혼복'] },
+    { add: { allowConsecutiveSit: true, minMixedGames: 0, allowPartnerRepeat: true }, relax: ['연속 결장', '인당 최소 혼복', '파트너 중복'] },
+    { add: { allowConsecutiveSit: true, minMixedGames: 0, allowPartnerRepeat: true, ignoreGender: true }, relax: ['연속 결장', '인당 최소 혼복', '파트너 중복', '잡복(성별 무시 편성)'] },
+  ];
+  let best = null, bestSpread = Infinity, bestPlan = null, lastErr = null;
+  for (const stage of ladder) {
+    let plan;
+    try {
+      plan = buildPlan({ ...config, options: { ...userOpts, ...stage.add } });
+    } catch (e) {
+      lastErr = e; // 파리티 불가 등 → 다음(더 완화된) 단계에서 해소
+      continue;
+    }
+    const slots = plan.totalGames * 4;
+    const achievable = slots % plan.N === 0 ? 0 : 1; // 산술적으로 가능한 최소 편차
+    // 잡복 단계는 잡복 최소화를 위해 탐색을 늘린다
+    const stageBudget = stage.add.ignoreGender
+      ? { restarts: budget.restarts * 2, iters: budget.iters * 2, polish: budget.polish }
+      : budget;
+    const s = solvePlan(plan, rng, stageBudget, stage.add);
+    if (!s) continue;
+    const spread = gameSpread(s, plan);
+    if (spread < bestSpread) { best = s; bestSpread = spread; bestPlan = plan; }
+    if (spread <= achievable) break; // 목표 달성 → 더 완화하지 않음
+  }
+  if (!best) throw lastErr || new SchedulerError('대진표를 구성하지 못했습니다. 인원·게임 수 설정을 조정해 주세요.');
+
+  hillClimb(best, bestPlan, rng, budget.polish);
+  const { errors, warnings, stats } = validateSchedule(best, bestPlan);
+  // 실제 발생한 완화만 배너로 표시 (특히 잡복은 게임 수 명시)
+  const applied = [];
+  if (stats.consecutiveSits > 0) applied.push('연속 결장');
+  if (stats.partnerRepeats > 0) applied.push('파트너 중복');
+  if (stats.japbokGames > 0) applied.push(`잡복 ${stats.japbokGames}게임 (불가피)`);
+  const relaxationsApplied = applied.length
+    ? [`인당 게임 수를 맞추기 위해 최소한으로 완화했습니다: ${applied.join(' · ')}`]
+    : [];
+  return {
+    type: bestPlan.type,
+    rounds: best.rounds,
+    seed,
+    plan: bestPlan,
+    errors,
+    warnings: [...bestPlan.planWarnings, ...warnings],
+    stats,
+    relaxationsApplied,
+  };
+}
+
 export function generateSchedule(config) {
-  const plan = buildPlan(config);
   const seed = Number.isFinite(config.seed) ? config.seed >>> 0 : 20260718;
   const rng = makeRng(seed || 1);
   const budget = Object.assign({ restarts: 24, iters: 500, polish: 1500 }, config.searchBudget || {});
+
+  // 게임데이·앵그리대회(내부 type 'monthly')는 기본적으로 인당 게임 수 우선(strict) 사다리 사용
+  const isMT = config.type === 'monthly';
+  const strict = isMT && (!config.options || config.options.strictGameCount !== false);
+  if (strict) return generateStrict(config, seed, rng, budget);
+
+  const plan = buildPlan(config);
   const rankerPicks = pickRankers(plan, rng);
 
   // 완화 사다리: 엄격 → 연속 결장 허용 → 파트너 중복 최소화. 앞 단계가 전멸했을 때만 다음 단계로.

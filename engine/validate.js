@@ -31,6 +31,7 @@ export function computeStats(schedule, plan) {
     ? opt.tightRounds
     : Array.from({ length: Math.max(0, Number(opt.tightRounds) || 0) }, (_, i) => i + 1);
   let earlyTightness = 0; // 빡겜 라운드의 게임 내 실력 폭 합
+  let japbokGames = 0; // 실제 성별 기준 잡복 게임 수 (성별 무시 편성 시 최소화 대상)
 
   schedule.rounds.forEach((rd, r) => {
     const seen = new Map(); // id → 배정 횟수 (라운드 내 중복 감지)
@@ -68,6 +69,9 @@ export function computeStats(schedule, plan) {
       if (type1 !== type2) {
         structural.push({ code: 'E_JAPBOK', round: r, players: all, message: `${r + 1}라운드 ${game.court}코트가 잡복(${type1} vs ${type2})입니다.` });
       }
+      // 실제 성별 기준 잡복 게임 수 (성별 무시 편성일 때도 진짜 잡복을 집계 — 최소화 대상)
+      const realType = (team) => team.map((id) => byId.get(id).realGender || byId.get(id).gender).sort().join('');
+      if (realType(t1) !== realType(t2)) japbokGames++;
       const actualType = type1 === type2 ? (type1 === 'MW' ? 'MX' : type1) : null;
 
       for (const id of all) {
@@ -341,6 +345,7 @@ export function computeStats(schedule, plan) {
     perPlayer: per,
     scoreDiffSq,
     earlyTightness,
+    japbokGames,
     rankerMiss,
     diffCapViolations,
     diffCapList,

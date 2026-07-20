@@ -36,6 +36,7 @@ const state = {
     allowConsecutiveSit: false,
     allowPartnerRepeat: false,
     ignoreGender: false,
+    strictGameCount: true, // 게임데이·앵그리대회: 인당 게임 수 우선 (필요 시 잡복까지 최소 허용)
   },
   attend: { selectedIds: [], excludeOverrides: {} },
   history: [], // [{ts, seed, config, rounds, summary}] 최신이 앞
@@ -765,7 +766,9 @@ function renderSettings() {
         <span class="hint">같은 상대와 만나는 횟수를 이 값 이하로 제한 (기본 2번)</span>
         ${!isReg ? `
         <label>인당 최소 혼복 게임 수 <select id="opt-minmixed">${minMixedOpts}</select></label>
-        <span class="hint">모든 참가자가 최소 이 횟수만큼 혼복을 하도록 배정 (기본 1회, '없음'이면 미적용)</span>` : ''}
+        <span class="hint">모든 참가자가 최소 이 횟수만큼 혼복을 하도록 배정 (기본 1회, '없음'이면 미적용)</span>
+        <label><input type="checkbox" id="opt-strict" ${s.strictGameCount !== false ? 'checked' : ''}> 인당 게임 수 우선</label>
+        <span class="hint">전원이 목표 게임 수를 채우도록 우선 배정. 성비가 크게 치우쳐 불가피할 때만 잡복을 최소한으로 허용합니다 (끄면 잡복 없이 규칙 우선, 대신 게임 수 편차 발생 가능)</span>` : ''}
         ${isReg ? `
         <label>혼복 위주 라운드 <span style="display:inline-block;vertical-align:middle">${mixedChips}</span></label>
         <span class="hint">선택한 라운드는 혼복 위주, 나머지는 남복/여복 위주 (기본 1·3)</span>` : ''}
@@ -1312,6 +1315,7 @@ function bindSettings() {
   chk('#opt-consec', 'allowConsecutiveSit');
   chk('#opt-partner', 'allowPartnerRepeat');
   chk('#opt-nogender', 'ignoreGender');
+  chk('#opt-strict', 'strictGameCount');
 
   const pwSave = $('#pw-save');
   if (pwSave) pwSave.addEventListener('click', async () => {
@@ -1511,6 +1515,7 @@ function buildConfig(seed) {
         allowConsecutiveSit: s.allowConsecutiveSit,
         allowPartnerRepeat: s.allowPartnerRepeat,
         ignoreGender: false,
+        strictGameCount: s.strictGameCount !== false,
       },
       seed,
     };
@@ -1546,6 +1551,7 @@ function buildConfig(seed) {
       allowConsecutiveSit: s.allowConsecutiveSit,
       allowPartnerRepeat: s.allowPartnerRepeat,
       ignoreGender: s.ignoreGender,
+      strictGameCount: s.strictGameCount !== false,
     },
     seed,
   };
