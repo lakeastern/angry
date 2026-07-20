@@ -179,7 +179,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-19 23:28</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-19 23:47</span></div>
 <div id="toast"></div>
 <script>
 'use strict';
@@ -1953,10 +1953,7 @@ function renderViewer() {
   const isTour = b.mode === 'tournament';
   const aliasReal = b.aliasReal || {};
   const hasAssign = Object.keys(aliasReal).length > 0;
-  const nameV = (id) => {
-    if (isTour && state.showRealNames && aliasReal[id]) return aliasReal[id];
-    return b.names[id] ? b.names[id][0] : id;
-  };
+  const nameV = (id) => viewerName(b, id);
   const tokV = (id) => `<span class="tok" style="cursor:default">${esc(nameV(id))}</span>`;
   const isReg = b.type === 'regular';
   const maxCourts = Math.max(...b.rounds.map((rd) => rd.games.length));
@@ -1982,6 +1979,7 @@ function renderViewer() {
     </div></div>
   </section>
   <div class="row no-print viewer-actions">
+    <button class="ghost" id="v-image">📷 이미지 저장</button>
     <button class="ghost" id="v-print">🖨 인쇄</button>
     ${isTour && hasAssign ? `<button class="ghost" id="v-nametoggle">${state.showRealNames ? '별칭 보기' : '실명 보기'}</button>` : ''}
     ${state.shareUnlocked
@@ -1990,9 +1988,169 @@ function renderViewer() {
   </div>`;
 }
 
+// 뷰어 표시명 (앵그리대회 실명 토글 반영)
+function viewerName(b, id) {
+  if (b.mode === 'tournament' && state.showRealNames && b.aliasReal && b.aliasReal[id]) return b.aliasReal[id];
+  return b.names[id] ? b.names[id][0] : id;
+}
+
+// 대진표를 Canvas 2D로 직접 그려 PNG로 저장 (외부 라이브러리 없음 · PC/모바일 동작)
+function renderBracketCanvas(b, date) {
+  const isReg = b.type === 'regular';
+  const maxCourts = Math.max(...b.rounds.map((rd) => rd.games.length));
+  const name = (id) => viewerName(b, id);
+
+  const scale = Math.max(2, Math.min(3, window.devicePixelRatio || 1));
+  const F_NAME = '600 15px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';
+  const F_VS = '700 12px sans-serif';
+  const F_HEAD = '700 14px "Malgun Gothic",sans-serif';
+  const F_TITLE = '700 20px "Malgun Gothic",sans-serif';
+  const F_DATE = '12px "Malgun Gothic",sans-serif';
+  const lineH = 22, padX = 10, padY = 8, gap = 10, margin = 16, titleH = 36, dateH = 22;
+
+  const mctx = document.createElement('canvas').getContext('2d');
+  const w = (t, f) => { mctx.font = f; return mctx.measureText(t).width; };
+  const teamStr = (team) => team.map(name).join('   ');
+  const vsPrefixW = w('vs  ', F_VS);
+
+  // 열 폭 계산
+  const courtW = [];
+  for (let c = 0; c < maxCourts; c++) {
+    let mx = w('a코트', F_HEAD);
+    for (const rd of b.rounds) {
+      const g = rd.games[c];
+      if (!g) continue;
+      mx = Math.max(mx, w(teamStr(g.teams[0]), F_NAME), vsPrefixW + w(teamStr(g.teams[1]), F_NAME));
+    }
+    courtW.push(Math.ceil(mx) + padX * 2);
+  }
+  const roundW = Math.ceil(w('9R', F_HEAD)) + padX * 2;
+  const lessonHead = isReg ? 'c코트 레슨' : '대기';
+  const lessonLinesOf = (rd) => {
+    const ids = [...rd.lesson, ...(rd.excluded || [])];
+    const lines = [];
+    for (let i = 0; i < ids.length; i += 4) lines.push(ids.slice(i, i + 4));
+    return lines.length ? lines : [[]];
+  };
+  let lessonW = w(lessonHead, F_HEAD);
+  for (const rd of b.rounds) {
+    for (const line of lessonLinesOf(rd)) {
+      const lw = line.reduce((a, id) => a + w(name(id), F_NAME), 0) + Math.max(0, line.length - 1) * gap;
+      lessonW = Math.max(lessonW, lw);
+    }
+  }
+  lessonW = Math.ceil(lessonW) + padX * 2;
+
+  const headH = lineH + padY * 2;
+  const rowH = b.rounds.map((rd) => Math.max(2, lessonLinesOf(rd).length) * lineH + padY * 2);
+  const tableW = roundW + courtW.reduce((a, x) => a + x, 0) + lessonW;
+  const tableH = headH + rowH.reduce((a, x) => a + x, 0);
+  const totalW = tableW + margin * 2;
+  const totalH = titleH + tableH + dateH + margin * 2;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(totalW * scale);
+  canvas.height = Math.ceil(totalH * scale);
+  const ctx = canvas.getContext('2d');
+  ctx.scale(scale, scale);
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, totalW, totalH);
+
+  ctx.fillStyle = '#111';
+  ctx.font = F_TITLE;
+  ctx.textAlign = 'center';
+  ctx.fillText('🎾 앵그리 테니스 클럽 대진표', totalW / 2, margin + titleH / 2);
+
+  const x0 = margin, y0 = margin + titleH;
+  const colX = [x0, x0 + roundW];
+  for (let c = 0; c < maxCourts; c++) colX.push(colX[colX.length - 1] + courtW[c]);
+  const lessonX = colX[colX.length - 1];
+  const border = (x, y, cw, ch) => { ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, cw, ch); };
+  const drawTeam = (team, x, y) => {
+    let cx = x;
+    ctx.font = F_NAME; ctx.fillStyle = '#111'; ctx.textAlign = 'left';
+    team.forEach((id, i) => { const nm = name(id); if (i) cx += w('   ', F_NAME); ctx.fillText(nm, cx, y); cx += w(nm, F_NAME); });
+  };
+
+  // 헤더
+  let cy = y0;
+  ctx.fillStyle = '#f3f4f6'; ctx.fillRect(x0, cy, roundW, headH); border(x0, cy, roundW, headH);
+  ctx.textAlign = 'center'; ctx.fillStyle = '#111'; ctx.font = F_HEAD;
+  for (let c = 0; c < maxCourts; c++) {
+    const cx = colX[1 + c];
+    ctx.fillStyle = '#f3f4f6'; ctx.fillRect(cx, cy, courtW[c], headH); border(cx, cy, courtW[c], headH);
+    ctx.fillStyle = '#111'; ctx.fillText('abc'[c] + '코트', cx + courtW[c] / 2, cy + headH / 2);
+  }
+  ctx.fillStyle = '#f3f4f6'; ctx.fillRect(lessonX, cy, lessonW, headH); border(lessonX, cy, lessonW, headH);
+  ctx.fillStyle = '#111'; ctx.fillText(lessonHead, lessonX + lessonW / 2, cy + headH / 2);
+  cy += headH;
+
+  // 라운드
+  b.rounds.forEach((rd, r) => {
+    const rh = rowH[r];
+    ctx.fillStyle = '#f9fafb'; ctx.fillRect(x0, cy, roundW, rh); border(x0, cy, roundW, rh);
+    ctx.fillStyle = '#111'; ctx.font = F_HEAD; ctx.textAlign = 'center'; ctx.fillText((r + 1) + 'R', x0 + roundW / 2, cy + rh / 2);
+    for (let c = 0; c < maxCourts; c++) {
+      const cx = colX[1 + c];
+      border(cx, cy, courtW[c], rh);
+      const g = rd.games[c];
+      if (!g) { ctx.fillStyle = '#c7cdd6'; ctx.font = F_NAME; ctx.textAlign = 'center'; ctx.fillText('—', cx + courtW[c] / 2, cy + rh / 2); continue; }
+      const midY = cy + rh / 2;
+      drawTeam(g.teams[0], cx + padX, midY - lineH / 2);
+      ctx.font = F_VS; ctx.fillStyle = '#6b7280'; ctx.textAlign = 'left'; ctx.fillText('vs', cx + padX, midY + lineH / 2);
+      drawTeam(g.teams[1], cx + padX + vsPrefixW, midY + lineH / 2);
+    }
+    border(lessonX, cy, lessonW, rh);
+    const lines = lessonLinesOf(rd);
+    const startY = cy + rh / 2 - (lines.length - 1) * lineH / 2;
+    lines.forEach((line, li) => {
+      const ly = startY + li * lineH;
+      if (!line.length) { ctx.fillStyle = '#c7cdd6'; ctx.font = F_NAME; ctx.textAlign = 'left'; ctx.fillText('—', lessonX + padX, ly); return; }
+      let lx = lessonX + padX;
+      ctx.font = F_NAME; ctx.textAlign = 'left'; ctx.fillStyle = '#111';
+      line.forEach((id) => { const nm = name(id); ctx.fillText(nm, lx, ly); lx += w(nm, F_NAME) + gap; });
+    });
+    cy += rh;
+  });
+
+  if (date) { ctx.fillStyle = '#6b7280'; ctx.font = F_DATE; ctx.textAlign = 'right'; ctx.fillText(date + ' 작성함', x0 + tableW, cy + dateH / 2); }
+  return canvas;
+}
+
+async function saveBracketImage() {
+  const p = state.share;
+  if (!p || !p.b) return;
+  let canvas;
+  try {
+    canvas = renderBracketCanvas(p.b, p.date);
+  } catch (e) {
+    toast('이미지를 만들 수 없습니다: ' + e.message);
+    return;
+  }
+  const fname = `앵그리대진표${p.date ? '_' + p.date.replace(/[^0-9]/g, '') : ''}.png`;
+  canvas.toBlob(async (blob) => {
+    if (!blob) { toast('이미지 생성에 실패했습니다.'); return; }
+    const file = new File([blob], fname, { type: 'image/png' });
+    // 모바일: 공유 시트(사진 저장) 우선
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file] }); return; } catch (e) { if (e && e.name === 'AbortError') return; /* 실패 시 다운로드로 폴백 */ }
+    }
+    // PC/그 외: 다운로드
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
+    toast('대진표 이미지를 저장했습니다.');
+  }, 'image/png');
+}
+
 function bindViewer() {
   const pr = $('#v-print');
   if (pr) pr.addEventListener('click', () => window.print());
+  const img = $('#v-image');
+  if (img) img.addEventListener('click', () => saveBracketImage());
   const nt = $('#v-nametoggle');
   if (nt) nt.addEventListener('click', () => { state.showRealNames = !state.showRealNames; render(); });
   const adm = $('#v-admin');
