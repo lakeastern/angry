@@ -152,6 +152,15 @@
   .aarrow { color: var(--muted); }
   .asel { flex: 1; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem; }
 
+  /* 결과 입력 스코어 */
+  .scorein { margin-top: 4px; display: flex; align-items: center; gap: 4px; justify-content: center; }
+  .scorein input { width: 40px; padding: 3px 4px; border: 1.5px solid var(--border); border-radius: 5px; text-align: center; font-size: 0.9rem; }
+  .scorein span { color: var(--muted); font-weight: 700; }
+  .scorebar { margin: 8px 0 2px; }
+
+  /* 앵그리랭킹 저장 대회 목록 */
+  .evrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid #eee; font-size: 0.88rem; }
+
   /* 공유 링크 보기 전용 페이지 */
   .vtitle { text-align: center; font-size: 1.3rem; margin: 4px 0 16px; }
   .viewer-actions { justify-content: center; margin-bottom: 14px; }
@@ -179,7 +188,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-20 18:51</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-20 20:01</span></div>
 <div id="toast"></div>
 <script>
 'use strict';
@@ -1612,8 +1621,71 @@ function generateSchedule(config) {
   };
 }
 
+// ─── engine/ranking.js ───
+// 앵그리랭킹 집계 — 순수 함수 (저장·UI와 분리, 테스트 가능)
+//
+// 결과(result) 형식:
+//   { id, date, mode, players: [{ memberId, name }],
+//     games: [{ round, court, teamA:[memberId,memberId], teamB:[...], scoreA, scoreB }] }
+//
+// 멤버별 누적 후 랭킹 정렬(사전식): 승수 W desc → 득실차 GD desc → 승률 desc → 이름
+// (승이 많은 사람은 득실차와 무관하게 항상 상위)
+
+function computeRanking(results) {
+  const stat = new Map(); // memberId → { memberId, name, G, W, L, GF, GA }
+  const ensure = (id, name) => {
+    if (!stat.has(id)) stat.set(id, { memberId: id, name: name || id, G: 0, W: 0, L: 0, GF: 0, GA: 0 });
+    const s = stat.get(id);
+    if (name) s.name = name; // 최신 이름으로 갱신
+    return s;
+  };
+
+  for (const r of results || []) {
+    const nameOf = new Map((r.players || []).map((p) => [p.memberId, p.name]));
+    for (const g of r.games || []) {
+      const a = Number(g.scoreA);
+      const b = Number(g.scoreB);
+      if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) continue; // 미입력·동점 게임은 집계 제외
+      const teamA = (g.teamA || []).filter(Boolean);
+      const teamB = (g.teamB || []).filter(Boolean);
+      const aWin = a > b;
+      for (const id of teamA) {
+        const s = ensure(id, nameOf.get(id));
+        s.G++; s.GF += a; s.GA += b; if (aWin) s.W++; else s.L++;
+      }
+      for (const id of teamB) {
+        const s = ensure(id, nameOf.get(id));
+        s.G++; s.GF += b; s.GA += a; if (!aWin) s.W++; else s.L++;
+      }
+    }
+  }
+
+  const rows = [...stat.values()].map((s) => ({
+    ...s,
+    GD: s.GF - s.GA,
+    points: s.W * 3, // 종합점수(승점) — 표시용. 순위는 아래 사전식 정렬
+    winRate: s.G ? s.W / s.G : 0,
+  }));
+
+  rows.sort((x, y) =>
+    y.W - x.W || // 승수 절대 우선
+    y.GD - x.GD || // 득실차 타이브레이크
+    y.winRate - x.winRate || // 승률
+    x.name.localeCompare(y.name, 'ko') // 이름
+  );
+
+  let rank = 0, prevKey = null;
+  rows.forEach((r, i) => {
+    const key = r.W + '/' + r.GD + '/' + r.winRate.toFixed(4);
+    if (key !== prevKey) { rank = i + 1; prevKey = key; } // 동률은 같은 순위
+    r.rank = rank;
+  });
+  return rows;
+}
+
 // ─── app.js ───
 // 앵그리 테니스 클럽 대진표 — UI v2 (실명 명단·설정 튜닝·버전 히스토리)
+
 
 
 
@@ -1621,8 +1693,18 @@ const K_ROSTER = 'angry-roster-v2';
 const K_SETTINGS = 'angry-settings-v2';
 const K_ATTEND = 'angry-attend-v2';
 const K_HISTORY = 'angry-history-v2';
+const K_RESULTS = 'angry-results-v2'; // 확정 대회 결과 누적
 const K_KEY = 'angry-key-v2'; // 관리자 비밀번호에서 파생한 키 (SHA-256, base64url)
 const PUBLIC_URL = 'https://lakeastern.github.io/angry/';
+
+// 결과 저장 계층 (지금은 localStorage, Phase 2에서 동일 인터페이스로 Firestore 교체)
+const resultStore = {
+  list() { try { return JSON.parse(localStorage.getItem(K_RESULTS)) || []; } catch (e) { return []; } },
+  _save(arr) { try { localStorage.setItem(K_RESULTS, JSON.stringify(arr)); } catch (e) { /* 무시 */ } },
+  add(entry) { const a = this.list(); const i = a.findIndex((r) => r.id === entry.id); if (i >= 0) a[i] = entry; else a.unshift(entry); this._save(a); },
+  remove(id) { this._save(this.list().filter((r) => r.id !== id)); },
+  get(id) { return this.list().find((r) => r.id === id) || null; },
+};
 
 const state = {
   roster: { men: [], women: [] }, // {id, name, prefs:{gamePriority,newMember,mixedPreferred}, presetExclude:[], guest}
@@ -1648,7 +1730,9 @@ const state = {
   editingId: null,
   dragId: null,
   showRealNames: false, // 앵그리대회: 대진표를 별칭(false) / 실명(true)으로 표시
-  ui: { roster: null, adv: null, exclude: null }, // details 접힘 상태 (null = 자동)
+  scoreMode: false, // 앵그리대회 결과(스코어) 입력 모드
+  scores: {}, // 결과 입력 임시 버퍼: `${round}:${gi}` → {a, b}
+  ui: { roster: null, adv: null, exclude: null, ranking: null }, // details 접힘 상태 (null = 자동)
   share: null, // 공유 링크로 열었을 때의 페이로드
   viewerMode: false, // 'b'(대진표 보기) | 'r'(명단 수신 대기) | false
   shareUnlocked: false, // 공유 링크를 관리자 키로 자동 해독했는지
@@ -1926,6 +2010,7 @@ function render() {
   $('#app').innerHTML = `
     <h1>🎾 앵그리 테니스 클럽 대진표</h1>
     ${renderRoster()}
+    ${renderRanking()}
     ${renderSettings()}
     ${renderAttendance()}
     ${renderActions()}
@@ -2248,6 +2333,49 @@ function renderRoster() {
   </section>`;
 }
 
+// ─── 🏆 앵그리랭킹 (앵그리대회 결과 누적) ───
+function renderRanking() {
+  const results = resultStore.list();
+  const open = state.ui.ranking === null ? false : state.ui.ranking;
+  const rows = computeRanking(results);
+  const rankRows = rows
+    .map((r) => `<tr>
+      <td>${r.rank}</td>
+      <td style="text-align:left;font-weight:700">${esc(r.name)}</td>
+      <td><b>${r.points}</b></td>
+      <td>${r.W}-${r.L}</td>
+      <td>${r.GD > 0 ? '+' : ''}${r.GD}</td>
+      <td>${r.G}</td>
+    </tr>`)
+    .join('');
+  const eventRows = results
+    .map((r) => {
+      const gc = (r.games || []).filter((g) => Number.isFinite(+g.scoreA) && Number.isFinite(+g.scoreB) && +g.scoreA !== +g.scoreB).length;
+      return `<div class="evrow"><span>${esc(r.date || '')} · ${esc(r.title || '앵그리대회')} <span class="hint-inline">(${r.players ? r.players.length : 0}명 · ${gc}게임)</span></span>
+        <button class="mini del" data-delresult="${r.id}" title="이 대회 결과 삭제">×</button></div>`;
+    })
+    .join('');
+  return `
+  <section class="card no-print">
+    <details data-uikey="ranking" ${open ? 'open' : ''}>
+      <summary class="secsum"><b>🏆 앵그리랭킹</b> <span class="hint-inline">— 앵그리대회 누적 (승수 우선 · 득실차 순)</span></summary>
+      ${rows.length
+        ? `<table class="detail-table" style="max-width:460px;margin-top:8px">
+             <tr><th>순위</th><th style="text-align:left">이름</th><th>종합점수</th><th>승-패</th><th>득실차</th><th>경기</th></tr>
+             ${rankRows}
+           </table>
+           <div style="margin-top:10px"><b class="hint-inline">저장된 대회</b>${eventRows}</div>`
+        : '<div class="hint" style="margin-top:8px">아직 저장된 대회 결과가 없습니다. 앵그리대회 대진표에서 "📝 결과 입력"으로 스코어를 입력하고 저장하세요.</div>'}
+      <div class="row" style="margin-top:10px">
+        <button class="ghost mini2" id="rank-export">⬇ 백업 내보내기</button>
+        <button class="ghost mini2" id="rank-import">⬆ 가져오기</button>
+        <input type="file" id="rank-import-file" accept="application/json" style="display:none">
+      </div>
+      <div class="hint">Firebase 실시간 공유는 다음 단계에서 추가됩니다. 지금은 이 기기에 누적되며, 백업 파일로 옮길 수 있습니다.</div>
+    </details>
+  </section>`;
+}
+
 function renderSettings() {
   const s = state.settings;
   const isReg = s.meetingType === 'regular';
@@ -2398,6 +2526,8 @@ function renderResult() {
 
   const isReg = res.type === 'regular';
   const isTour = res.mode === 'tournament';
+  const assignedFull = isTour && res.aliasAssign && Object.values(res.aliasAssign).filter(Boolean).length === res.plan.byId.size;
+  const scoreInput = isTour && state.scoreMode;
   const maxCourtsAll = Math.max(...res.rounds.map((rd) => rd.games.length));
 
   // 관리자 화면 전용: 규칙 위반을 셀·선수 단위 표시 (경기이사 수동 조정용)
@@ -2469,7 +2599,13 @@ function renderResult() {
           }
           icons.forEach((ic) => usedIcons.add(ic));
           const badgeHtml = icons.length ? `<span class="cellbadges" title="규칙 위반 — 아래 범례 참고">${icons.join('')}</span>` : '';
-          return `<td class="gamecell">${badgeHtml}<div class="tline">${team(0)}</div><div class="tline"><span class="vs ${vsClass}">vs</span>${team(1)}</div></td>`;
+          // 결과 입력 모드(앵그리대회): 게임별 스코어 2칸
+          let scoreHtml = '';
+          if (scoreInput) {
+            const sc = state.scores[r + ':' + gi] || {};
+            scoreHtml = `<div class="scorein"><input type="number" min="0" max="99" inputmode="numeric" data-score="${r}:${gi}:a" value="${sc.a ?? ''}"><span>:</span><input type="number" min="0" max="99" inputmode="numeric" data-score="${r}:${gi}:b" value="${sc.b ?? ''}"></div>`;
+          }
+          return `<td class="gamecell">${badgeHtml}<div class="tline">${team(0)}</div><div class="tline"><span class="vs ${vsClass}">vs</span>${team(1)}</div>${scoreHtml}</td>`;
         })
         .join('') + '<td class="emptycourt">—</td>'.repeat(maxCourtsAll - rd.games.length);
       // 제외(지각/조퇴) 인원도 구분 없이 일반 이름으로 표기 (스왑 대상은 아님)
@@ -2513,11 +2649,14 @@ function renderResult() {
   const toggleBtn = isTour
     ? `<button class="ghost mini2" id="name-toggle">${state.showRealNames ? '별칭 보기' : '실명 보기'}</button>`
     : '';
+  const scoreBtn = isTour
+    ? `<button class="ghost mini2" id="score-toggle">${state.scoreMode ? '결과 입력 닫기' : '📝 결과 입력'}</button>`
+    : '';
   const imageBtn = '<button class="ghost mini2" id="result-image">📷 이미지 저장</button>';
 
   return `
   <section class="card">
-    <h2>${modeLabel} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span> <span class="no-print">${imageBtn} ${toggleBtn}</span></h2>
+    <h2>${modeLabel} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span> <span class="no-print">${imageBtn} ${toggleBtn} ${scoreBtn}</span></h2>
     <div class="result-cols">
       <div class="bracket-col">
         <div class="bracket-scroll"><table class="bracket">
@@ -2525,6 +2664,11 @@ function renderResult() {
           ${roundsHtml}
         </table></div>
         ${legendHtml}
+        ${scoreInput ? `<div class="scorebar no-print">
+          ${assignedFull
+            ? '<button class="primary" id="score-save">이 대회 결과 저장</button> <span class="hint-inline">각 게임의 스코어(예: 6 : 4)를 입력하고 저장하면 앵그리랭킹에 누적됩니다.</span>'
+            : '<span class="hint" style="color:#b45309">먼저 아래 별칭 배정을 모두 완료해야 결과를 저장할 수 있습니다 (제비뽑기).</span>'}
+        </div>` : ''}
       </div>
       ${warnHtml ? `<div class="note-side">${warnHtml}</div>` : ''}
     </div>
@@ -2604,10 +2748,54 @@ function bindAll() {
     el.addEventListener('toggle', () => { state.ui[el.dataset.uikey] = el.open; })
   );
   bindRoster();
+  bindRanking();
   bindSettings();
   bindAttendance();
   bindActions();
   bindResult();
+}
+
+function bindRanking() {
+  document.querySelectorAll('[data-delresult]').forEach((el) =>
+    el.addEventListener('click', () => {
+      const id = el.dataset.delresult;
+      const r = resultStore.get(id);
+      if (!confirm(`${r ? (r.date || '') + ' ' : ''}대회 결과를 삭제할까요? 랭킹에서 빠집니다.`)) return;
+      resultStore.remove(id);
+      render();
+    })
+  );
+  const exp = $('#rank-export');
+  if (exp) exp.addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(resultStore.list(), null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'angry-results-backup.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
+    toast('결과 백업을 내보냈습니다.');
+  });
+  const imp = $('#rank-import');
+  const impFile = $('#rank-import-file');
+  if (imp && impFile) {
+    imp.addEventListener('click', () => impFile.click());
+    impFile.addEventListener('change', async () => {
+      const f = impFile.files && impFile.files[0];
+      if (!f) return;
+      try {
+        const arr = JSON.parse(await f.text());
+        if (!Array.isArray(arr)) throw new Error('형식 오류');
+        const cur = resultStore.list();
+        const byId = new Map(cur.map((r) => [r.id, r]));
+        arr.forEach((r) => { if (r && r.id) byId.set(r.id, r); }); // id 기준 병합(가져온 값 우선)
+        resultStore._save([...byId.values()]);
+        toast(`결과 ${arr.length}건을 가져왔습니다.`);
+        render();
+      } catch (e) {
+        toast('가져오기 실패: ' + e.message);
+      }
+    });
+  }
 }
 
 function bindRoster() {
@@ -2868,6 +3056,66 @@ function bindResult() {
     syncCurrentVersion(false);
     render();
   });
+
+  // 결과 입력
+  const scoreToggle = $('#score-toggle');
+  if (scoreToggle) scoreToggle.addEventListener('click', () => {
+    state.scoreMode = !state.scoreMode;
+    if (state.scoreMode) state.scores = loadScoresFromEntry();
+    render();
+  });
+  document.querySelectorAll('[data-score]').forEach((el) =>
+    el.addEventListener('input', () => {
+      const [r, gi, side] = el.dataset.score.split(':');
+      const key = r + ':' + gi;
+      const cur = state.scores[key] || (state.scores[key] = {});
+      const v = el.value === '' ? undefined : Math.max(0, Math.min(99, +el.value || 0));
+      cur[side] = v;
+      // 현재 버전 스냅샷에 입력값 보관(재편집 대비)
+      const entry = state.history[state.currentIdx];
+      if (entry) { entry.scores = state.scores; persistAll(); }
+    })
+  );
+  const scoreSave = $('#score-save');
+  if (scoreSave) scoreSave.addEventListener('click', () => saveTournamentResult());
+}
+
+function loadScoresFromEntry() {
+  const entry = state.history[state.currentIdx];
+  return entry && entry.scores ? deepClone(entry.scores) : {};
+}
+
+// 앵그리대회 결과 저장: 별칭→실명 확정, 게임 스코어 검증 후 resultStore에 누적
+function saveTournamentResult() {
+  const res = state.result;
+  const assign = res.aliasAssign || {};
+  const memberOfAlias = (aliasId) => assign[aliasId];
+  const games = [];
+  let missing = 0, tie = 0;
+  res.rounds.forEach((rd, r) => {
+    rd.games.forEach((g, gi) => {
+      const sc = state.scores[r + ':' + gi] || {};
+      const a = sc.a, b = sc.b;
+      const teamA = g.teams[0].map(memberOfAlias);
+      const teamB = g.teams[1].map(memberOfAlias);
+      if (a == null || b == null) { missing++; return; }
+      if (a === b) { tie++; }
+      games.push({ round: r, court: g.court, teamA, teamB, scoreA: a, scoreB: b });
+    });
+  });
+  if (games.length === 0) { toast('입력된 게임 스코어가 없습니다.'); return; }
+  if (tie > 0) { toast(`동점 게임이 ${tie}개 있습니다. 승패가 갈리도록 수정하세요.`); return; }
+  if (missing > 0 && !confirm(`스코어가 비어 있는 게임 ${missing}개는 제외하고 저장합니다. 계속할까요?`)) return;
+
+  const players = [...new Set(Object.values(assign).filter(Boolean))].map((mid) => ({ memberId: mid, name: (memberOf(mid) || {}).name || mid }));
+  const entry = state.history[state.currentIdx];
+  const id = (entry && entry.resultId) || uid();
+  const date = new Date().toLocaleDateString('ko-KR');
+  resultStore.add({ id, date, mode: 'tournament', title: '앵그리대회', players, games });
+  if (entry) { entry.resultId = id; entry.scores = state.scores; persistAll(); }
+  state.ui.ranking = true;
+  toast('대회 결과를 저장했습니다. 앵그리랭킹에 반영됩니다.');
+  render();
 }
 
 // 제비뽑기: 성별 내 참석자를 섞어 별칭에 순서대로 배정
@@ -2969,6 +3217,8 @@ function generate() {
     res.aliasAssign = {};
     state.result = res;
     state.showRealNames = false;
+    state.scoreMode = false;
+    state.scores = {};
     const entry = {
       ts: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
       seed: res.seed,
@@ -3023,6 +3273,8 @@ function viewVersion(i) {
     state.currentIdx = i;
     state.swapSel = null;
     state.showRealNames = false;
+    state.scoreMode = false;
+    state.scores = {};
     state.undoStack = [];
     state.redoStack = [];
     render();

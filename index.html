@@ -152,6 +152,15 @@
   .aarrow { color: var(--muted); }
   .asel { flex: 1; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem; }
 
+  /* 결과 입력 스코어 */
+  .scorein { margin-top: 4px; display: flex; align-items: center; gap: 4px; justify-content: center; }
+  .scorein input { width: 40px; padding: 3px 4px; border: 1.5px solid var(--border); border-radius: 5px; text-align: center; font-size: 0.9rem; }
+  .scorein span { color: var(--muted); font-weight: 700; }
+  .scorebar { margin: 8px 0 2px; }
+
+  /* 앵그리랭킹 저장 대회 목록 */
+  .evrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid #eee; font-size: 0.88rem; }
+
   /* 공유 링크 보기 전용 페이지 */
   .vtitle { text-align: center; font-size: 1.3rem; margin: 4px 0 16px; }
   .viewer-actions { justify-content: center; margin-bottom: 14px; }
@@ -179,7 +188,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-20 18:51</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-20 20:01</span></div>
 <div id="toast"></div>
 <script type="module" src="./app.js"></script>
 </body>
