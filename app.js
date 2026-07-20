@@ -49,7 +49,7 @@ const state = {
   scoreMode: false, // 앵그리대회 결과(스코어) 입력 모드
   scores: {}, // 결과 입력 임시 버퍼: `${round}:${gi}` → {a, b}
   rankFilter: 'all', // 앵그리랭킹: 'all'(전체 누적) | resultId(대회별 단일)
-  ui: { roster: null, adv: null, exclude: null, ranking: null }, // details 접힘 상태 (null = 자동)
+  ui: { roster: null, adv: null, exclude: null, ranking: null, advHelp: false }, // details 접힘 상태 (null = 자동) + 고급 설정 설명 표시
   share: null, // 공유 링크로 열었을 때의 페이로드
   viewerMode: false, // 'b'(대진표 보기) | 'r'(명단 수신 대기) | false
   shareUnlocked: false, // 공유 링크를 관리자 키로 자동 해독했는지
@@ -758,7 +758,8 @@ function renderSettings() {
     </div>
     <details data-uikey="adv" ${state.ui.adv ? 'open' : ''} style="margin-top:10px">
       <summary class="secsum">고급 설정 (제약 튜닝)</summary>
-      <div class="advgrid">
+      <label class="adv-help-toggle"><input type="checkbox" id="adv-help" ${state.ui.advHelp ? 'checked' : ''}> 각 옵션 설명 표시</label>
+      <div class="advgrid ${state.ui.advHelp ? '' : 'compact'}">
         ${!isTour ? `
         <label>게임 점수차 상한 <select id="opt-maxdiff">${diffOpts}</select></label>
         <span class="hint">한 게임의 두 팀 합산 점수 차이를 이 값 이하로 제한</span>` : ''}
@@ -1316,6 +1317,9 @@ function bindSettings() {
   chk('#opt-partner', 'allowPartnerRepeat');
   chk('#opt-nogender', 'ignoreGender');
   chk('#opt-strict', 'strictGameCount');
+
+  const advHelp = $('#adv-help');
+  if (advHelp) advHelp.addEventListener('change', () => { state.ui.advHelp = advHelp.checked; render(); });
 
   const pwSave = $('#pw-save');
   if (pwSave) pwSave.addEventListener('click', async () => {

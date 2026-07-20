@@ -131,6 +131,14 @@
   /* 고급 설정 */
   .advgrid { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; align-items: center; margin-top: 10px; font-size: 0.92rem; }
   .advgrid .hint { margin: 0; }
+  .advgrid.compact { grid-template-columns: 1fr; gap: 10px; }
+  .advgrid.compact .hint { display: none; }
+  .adv-help-toggle { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 0.82rem; color: var(--muted); cursor: pointer; user-select: none; }
+  .adv-help-toggle input { margin: 0; }
+  @media (max-width: 560px) {
+    .advgrid { grid-template-columns: 1fr; gap: 10px; }
+    .advgrid .hint { margin-top: 2px; }
+  }
   .advgrid select { padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; }
 
   /* 버전 히스토리 */
@@ -191,7 +199,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-20 22:29</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-20 22:39</span></div>
 <div id="toast"></div>
 <script type="module" src="./app.js"></script>
 </body>
