@@ -179,7 +179,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-19 23:47</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-20 18:51</span></div>
 <div id="toast"></div>
 <script>
 'use strict';
@@ -1995,10 +1995,11 @@ function viewerName(b, id) {
 }
 
 // 대진표를 Canvas 2D로 직접 그려 PNG로 저장 (외부 라이브러리 없음 · PC/모바일 동작)
-function renderBracketCanvas(b, date) {
-  const isReg = b.type === 'regular';
+// spec = { rounds, isReg, name(id), date }
+function renderBracketCanvas(spec) {
+  const { rounds, isReg, name, date } = spec;
+  const b = { rounds };
   const maxCourts = Math.max(...b.rounds.map((rd) => rd.games.length));
-  const name = (id) => viewerName(b, id);
 
   const scale = Math.max(2, Math.min(3, window.devicePixelRatio || 1));
   const F_NAME = '600 15px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';
@@ -2118,25 +2119,14 @@ function renderBracketCanvas(b, date) {
   return canvas;
 }
 
-async function saveBracketImage() {
-  const p = state.share;
-  if (!p || !p.b) return;
-  let canvas;
-  try {
-    canvas = renderBracketCanvas(p.b, p.date);
-  } catch (e) {
-    toast('이미지를 만들 수 없습니다: ' + e.message);
-    return;
-  }
-  const fname = `앵그리대진표${p.date ? '_' + p.date.replace(/[^0-9]/g, '') : ''}.png`;
+// canvas를 PNG로 저장: 모바일은 공유 시트(사진 저장) 우선, PC는 다운로드 폴백
+function saveCanvasPng(canvas, fname) {
   canvas.toBlob(async (blob) => {
     if (!blob) { toast('이미지 생성에 실패했습니다.'); return; }
     const file = new File([blob], fname, { type: 'image/png' });
-    // 모바일: 공유 시트(사진 저장) 우선
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file] }); return; } catch (e) { if (e && e.name === 'AbortError') return; /* 실패 시 다운로드로 폴백 */ }
+      try { await navigator.share({ files: [file] }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
     }
-    // PC/그 외: 다운로드
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = fname;
@@ -2144,6 +2134,40 @@ async function saveBracketImage() {
     setTimeout(() => URL.revokeObjectURL(url), 15000);
     toast('대진표 이미지를 저장했습니다.');
   }, 'image/png');
+}
+
+// 뷰어(공유 링크) 대진표 이미지 저장
+function saveBracketImage() {
+  const p = state.share;
+  if (!p || !p.b) return;
+  try {
+    const canvas = renderBracketCanvas({
+      rounds: p.b.rounds,
+      isReg: p.b.type === 'regular',
+      name: (id) => viewerName(p.b, id),
+      date: p.date,
+    });
+    saveCanvasPng(canvas, `앵그리대진표${p.date ? '_' + p.date.replace(/[^0-9]/g, '') : ''}.png`);
+  } catch (e) {
+    toast('이미지를 만들 수 없습니다: ' + e.message);
+  }
+}
+
+// 관리자 화면 대진표 이미지 저장 (현재 표시 상태 그대로 — 앵그리대회 별칭/실명 반영)
+function saveResultImage() {
+  const res = state.result;
+  if (!res || res.fatal) return;
+  try {
+    const canvas = renderBracketCanvas({
+      rounds: res.rounds,
+      isReg: res.type === 'regular',
+      name: (id) => dispName(id),
+      date: new Date().toLocaleDateString('ko-KR'),
+    });
+    saveCanvasPng(canvas, '앵그리대진표.png');
+  } catch (e) {
+    toast('이미지를 만들 수 없습니다: ' + e.message);
+  }
 }
 
 function bindViewer() {
@@ -2489,10 +2513,11 @@ function renderResult() {
   const toggleBtn = isTour
     ? `<button class="ghost mini2" id="name-toggle">${state.showRealNames ? '별칭 보기' : '실명 보기'}</button>`
     : '';
+  const imageBtn = '<button class="ghost mini2" id="result-image">📷 이미지 저장</button>';
 
   return `
   <section class="card">
-    <h2>${modeLabel} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span> ${toggleBtn}</h2>
+    <h2>${modeLabel} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span> <span class="no-print">${imageBtn} ${toggleBtn}</span></h2>
     <div class="result-cols">
       <div class="bracket-col">
         <div class="bracket-scroll"><table class="bracket">
@@ -2816,6 +2841,9 @@ function bindResult() {
 
   const nameToggle = $('#name-toggle');
   if (nameToggle) nameToggle.addEventListener('click', () => { state.showRealNames = !state.showRealNames; render(); });
+
+  const resultImage = $('#result-image');
+  if (resultImage) resultImage.addEventListener('click', () => saveResultImage());
 
   // 별칭 배정 드롭다운 (참석자 → 별칭)
   document.querySelectorAll('[data-assign]').forEach((el) =>
