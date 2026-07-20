@@ -160,6 +160,9 @@
 
   /* 앵그리랭킹 저장 대회 목록 */
   .evrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid #eee; font-size: 0.88rem; }
+  td.gamelog { text-align: left; font-variant-numeric: tabular-nums; letter-spacing: 0.5px; white-space: nowrap; }
+  td.gamelog .gwin { color: var(--accent); font-weight: 700; }
+  td.gamelog .glose { color: #9ca3af; }
 
   /* 공유 링크 보기 전용 페이지 */
   .vtitle { text-align: center; font-size: 1.3rem; margin: 4px 0 16px; }
@@ -188,7 +191,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-20 20:01</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-20 20:19</span></div>
 <div id="toast"></div>
 <script>
 'use strict';
@@ -1669,14 +1672,15 @@ function computeRanking(results) {
 
   rows.sort((x, y) =>
     y.W - x.W || // 승수 절대 우선
-    y.GD - x.GD || // 득실차 타이브레이크
+    y.GD - x.GD || // 득실차
+    y.GF - x.GF || // 같은 득실차면 득점 많은 쪽
     y.winRate - x.winRate || // 승률
     x.name.localeCompare(y.name, 'ko') // 이름
   );
 
   let rank = 0, prevKey = null;
   rows.forEach((r, i) => {
-    const key = r.W + '/' + r.GD + '/' + r.winRate.toFixed(4);
+    const key = r.W + '/' + r.GD + '/' + r.GF + '/' + r.winRate.toFixed(4);
     if (key !== prevKey) { rank = i + 1; prevKey = key; } // 동률은 같은 순위
     r.rank = rank;
   });
@@ -1732,6 +1736,7 @@ const state = {
   showRealNames: false, // 앵그리대회: 대진표를 별칭(false) / 실명(true)으로 표시
   scoreMode: false, // 앵그리대회 결과(스코어) 입력 모드
   scores: {}, // 결과 입력 임시 버퍼: `${round}:${gi}` → {a, b}
+  rankFilter: 'all', // 앵그리랭킹: 'all'(전체 누적) | resultId(대회별 단일)
   ui: { roster: null, adv: null, exclude: null, ranking: null }, // details 접힘 상태 (null = 자동)
   share: null, // 공유 링크로 열었을 때의 페이로드
   viewerMode: false, // 'b'(대진표 보기) | 'r'(명단 수신 대기) | false
@@ -2333,21 +2338,46 @@ function renderRoster() {
   </section>`;
 }
 
-// ─── 🏆 앵그리랭킹 (앵그리대회 결과 누적) ───
+// ─── 🏆 앵그리랭킹 (앵그리대회 결과 누적 + 대회별 단일) ───
 function renderRanking() {
   const results = resultStore.list();
   const open = state.ui.ranking === null ? false : state.ui.ranking;
-  const rows = computeRanking(results);
+  // 필터: 전체 누적 또는 특정 대회. 삭제 등으로 사라진 필터는 전체로
+  if (state.rankFilter !== 'all' && !results.some((r) => r.id === state.rankFilter)) state.rankFilter = 'all';
+  const scoped = state.rankFilter === 'all' ? results : results.filter((r) => r.id === state.rankFilter);
+  const rows = computeRanking(scoped);
+  const medal = (rk) => (rk === 1 ? '🥇' : rk === 2 ? '🥈' : rk === 3 ? '🥉' : rk);
+  // 단일 대회 보기: 선수별 경기 스코어 로그 (예: 60 26 36 64, 이긴 게임 강조)
+  const single = state.rankFilter !== 'all' && scoped.length === 1;
+  const logByMember = {};
+  if (single) {
+    for (const g of scoped[0].games || []) {
+      const a = +g.scoreA, b = +g.scoreB;
+      if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+      (g.teamA || []).forEach((mid) => (logByMember[mid] || (logByMember[mid] = [])).push({ my: a, opp: b }));
+      (g.teamB || []).forEach((mid) => (logByMember[mid] || (logByMember[mid] = [])).push({ my: b, opp: a }));
+    }
+  }
+  const fmtScore = (my, opp) => (my > 9 || opp > 9 ? `${my}-${opp}` : `${my}${opp}`);
+  const logCell = (mid) => (logByMember[mid] || []).map((x) => `<span class="${x.my > x.opp ? 'gwin' : 'glose'}">${fmtScore(x.my, x.opp)}</span>`).join(' ');
   const rankRows = rows
     .map((r) => `<tr>
-      <td>${r.rank}</td>
+      <td>${medal(r.rank)}</td>
       <td style="text-align:left;font-weight:700">${esc(r.name)}</td>
       <td><b>${r.points}</b></td>
       <td>${r.W}-${r.L}</td>
+      <td>${r.GF}</td>
+      <td>${r.GA}</td>
       <td>${r.GD > 0 ? '+' : ''}${r.GD}</td>
       <td>${r.G}</td>
+      ${single ? `<td class="gamelog">${logCell(r.memberId)}</td>` : ''}
     </tr>`)
     .join('');
+  // 필터 칩 (전체 누적 + 대회별)
+  const chip = (val, label) => `<span class="vchip ${state.rankFilter === val ? 'on' : ''}" data-rankfilter="${val}">${esc(label)}</span>`;
+  const filterChips = results.length
+    ? `<div class="vrow"><span class="hint-inline">보기:</span> ${chip('all', '전체 누적')}${results.map((r) => chip(r.id, `${r.date || ''} ${r.title || '앵그리대회'}`)).join('')}</div>`
+    : '';
   const eventRows = results
     .map((r) => {
       const gc = (r.games || []).filter((g) => Number.isFinite(+g.scoreA) && Number.isFinite(+g.scoreB) && +g.scoreA !== +g.scoreB).length;
@@ -2355,13 +2385,16 @@ function renderRanking() {
         <button class="mini del" data-delresult="${r.id}" title="이 대회 결과 삭제">×</button></div>`;
     })
     .join('');
+  const scopeLabel = state.rankFilter === 'all' ? '전체 누적 (연말 시상)' : ((scoped[0] && ((scoped[0].date || '') + ' ' + (scoped[0].title || '앵그리대회'))) + ' — 당일 시상');
   return `
   <section class="card no-print">
     <details data-uikey="ranking" ${open ? 'open' : ''}>
-      <summary class="secsum"><b>🏆 앵그리랭킹</b> <span class="hint-inline">— 앵그리대회 누적 (승수 우선 · 득실차 순)</span></summary>
+      <summary class="secsum"><b>🏆 앵그리랭킹</b> <span class="hint-inline">— 승수 우선 · 득실차 · 득점 순</span></summary>
+      ${results.length ? filterChips : ''}
       ${rows.length
-        ? `<table class="detail-table" style="max-width:460px;margin-top:8px">
-             <tr><th>순위</th><th style="text-align:left">이름</th><th>종합점수</th><th>승-패</th><th>득실차</th><th>경기</th></tr>
+        ? `<div class="hint-inline" style="display:block;margin:6px 0">${esc(scopeLabel)}</div>
+           <table class="detail-table" style="max-width:${single ? 720 : 560}px">
+             <tr><th>순위</th><th style="text-align:left">이름</th><th>종합점수</th><th>승-패</th><th>득</th><th>실</th><th>득실차</th><th>경기</th>${single ? '<th style="text-align:left">경기별(득실)</th>' : ''}</tr>
              ${rankRows}
            </table>
            <div style="margin-top:10px"><b class="hint-inline">저장된 대회</b>${eventRows}</div>`
@@ -2756,6 +2789,9 @@ function bindAll() {
 }
 
 function bindRanking() {
+  document.querySelectorAll('[data-rankfilter]').forEach((el) =>
+    el.addEventListener('click', () => { state.rankFilter = el.dataset.rankfilter; render(); })
+  );
   document.querySelectorAll('[data-delresult]').forEach((el) =>
     el.addEventListener('click', () => {
       const id = el.dataset.delresult;

@@ -45,14 +45,15 @@ export function computeRanking(results) {
 
   rows.sort((x, y) =>
     y.W - x.W || // 승수 절대 우선
-    y.GD - x.GD || // 득실차 타이브레이크
+    y.GD - x.GD || // 득실차
+    y.GF - x.GF || // 같은 득실차면 득점 많은 쪽
     y.winRate - x.winRate || // 승률
     x.name.localeCompare(y.name, 'ko') // 이름
   );
 
   let rank = 0, prevKey = null;
   rows.forEach((r, i) => {
-    const key = r.W + '/' + r.GD + '/' + r.winRate.toFixed(4);
+    const key = r.W + '/' + r.GD + '/' + r.GF + '/' + r.winRate.toFixed(4);
     if (key !== prevKey) { rank = i + 1; prevKey = key; } // 동률은 같은 순위
     r.rank = rank;
   });

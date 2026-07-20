@@ -160,6 +160,9 @@
 
   /* 앵그리랭킹 저장 대회 목록 */
   .evrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid #eee; font-size: 0.88rem; }
+  td.gamelog { text-align: left; font-variant-numeric: tabular-nums; letter-spacing: 0.5px; white-space: nowrap; }
+  td.gamelog .gwin { color: var(--accent); font-weight: 700; }
+  td.gamelog .glose { color: #9ca3af; }
 
   /* 공유 링크 보기 전용 페이지 */
   .vtitle { text-align: center; font-size: 1.3rem; margin: 4px 0 16px; }
@@ -188,7 +191,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-20 20:01</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-20 20:19</span></div>
 <div id="toast"></div>
 <script type="module" src="./app.js"></script>
 </body>

@@ -67,7 +67,22 @@ test('미입력·동점 게임은 집계에서 제외', () => {
   assert.equal(A.G, 1, '유효 게임 1개만 집계');
 });
 
-test('동률(승수·득실·승률 동일)은 같은 순위', () => {
+test('같은 득실차면 득점(GF) 많은 쪽이 위', () => {
+  const players = ['A', 'B', 'C', 'D', 'E', 'F', 'p', 'q', 'r', 's'].map((id) => ({ memberId: id, name: id }));
+  const rows = computeRanking([
+    result([
+      g(['A', 'C'], ['p', 'q'], 7, 5), // A: 1승 GD+2, GF7
+      g(['B', 'D'], ['r', 's'], 6, 4), // B: 1승 GD+2, GF6
+    ], players),
+  ]);
+  const A = rows.find((r) => r.memberId === 'A');
+  const B = rows.find((r) => r.memberId === 'B');
+  assert.equal(A.GD, 2); assert.equal(B.GD, 2);
+  assert.ok(A.GF > B.GF);
+  assert.ok(A.rank < B.rank, '같은 득실차(+2)면 득점 7인 A가 득점 6인 B보다 위');
+});
+
+test('동률(승수·득실·득점·승률 동일)은 같은 순위', () => {
   const players = ['A', 'B', 'C', 'D'].map((id) => ({ memberId: id, name: id }));
   // A와 B 각각 1승 GD+3 (대칭). 이름순으로 나열되지만 rank 동일
   const rows = computeRanking([
