@@ -929,7 +929,9 @@ function renderResult() {
           const icons = [];
           if (badGames.has(r + ':' + g.court)) icons.push('⚠️'); // 게임 구성 오류 (4인 미충족 등)
           if (all.every(known)) {
-            const gtype = (t) => t.map((id) => res.plan.byId.get(id).gender).sort().join('');
+            // 실제 성별(realGender)로 유형 판정 — 성별 무시 편성에서는 gender가 가짜 'M'이라
+            // realGender를 써야 혼복(파랑)/잡복(핫핑크)이 올바로 표시된다.
+            const gtype = (t) => t.map((id) => { const p = res.plan.byId.get(id); return p.realGender || p.gender; }).sort().join('');
             const t1 = gtype(g.teams[0]);
             const t2 = gtype(g.teams[1]);
             if (t1 !== t2) vsClass = 'japbok';
