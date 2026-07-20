@@ -9,7 +9,12 @@ export function costOf(schedule, plan) {
   // 하드 제약 바로 아래 독립 계층으로 최우선 배치. 정기모임은 기존대로 연속 결장과 동반.
   const isMT = plan.type === 'monthly';
   return [
-    st.structural.length * 10 + st.partnerRepeats, // 하드 (항상 0이어야 함)
+    st.structural.length * 10, // 하드: 구조적 무결성 (항상 0이어야 함)
+    // 남복 팀 vs 여복 팀(남남 vs 여여) 대진 금지. 게임 내 팀 분할만으로 항상 해소 가능하고
+    // 출전·게임 수에 영향이 없어, 파트너 중복(하드)보다 위에 두어도 정상 모드는 영향 없음
+    // (정상 모드는 잡복 자체가 없어 항상 0). 성별 무시 편성에서만 실효.
+    st.mmVsWwGames,
+    st.partnerRepeats, // 하드: 파트너 중복 0 (성별 무시 폴백에선 이미 완화되어 남복vs여복 제거를 위해 양보)
     isMT ? st.spreadPenalty : 0, // [게임데이·앵그리대회] 인당 게임 수 편차 최우선
     st.japbokGames, // 잡복 게임 수 최소화 (성별 무시 편성 시에만 >0, 게임 수 다음으로 중요)
     st.consecutiveSits * 2 + (isMT ? 0 : st.spreadPenalty * 2), // 연속 결장 (정기는 게임 수 편차 동반)

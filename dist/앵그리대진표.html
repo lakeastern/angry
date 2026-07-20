@@ -199,7 +199,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-20 22:39</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-21 00:01</span></div>
 <div id="toast"></div>
 <script>
 'use strict';
@@ -275,6 +275,7 @@ function computeStats(schedule, plan) {
     : Array.from({ length: Math.max(0, Number(opt.tightRounds) || 0) }, (_, i) => i + 1);
   let earlyTightness = 0; // 빡겜 라운드의 게임 내 실력 폭 합
   let japbokGames = 0; // 실제 성별 기준 잡복 게임 수 (성별 무시 편성 시 최소화 대상)
+  let mmVsWwGames = 0; // 남복 팀 vs 여복 팀(남남 vs 여여) 대진 — 잡복은 허용하되 이 대진만은 금지
 
   schedule.rounds.forEach((rd, r) => {
     const seen = new Map(); // id → 배정 횟수 (라운드 내 중복 감지)
@@ -314,7 +315,11 @@ function computeStats(schedule, plan) {
       }
       // 실제 성별 기준 잡복 게임 수 (성별 무시 편성일 때도 진짜 잡복을 집계 — 최소화 대상)
       const realType = (team) => team.map((id) => byId.get(id).realGender || byId.get(id).gender).sort().join('');
-      if (realType(t1) !== realType(t2)) japbokGames++;
+      const rt1 = realType(t1);
+      const rt2 = realType(t2);
+      if (rt1 !== rt2) japbokGames++;
+      // 남복 팀 vs 여복 팀(MM vs WW) — 잡복 중에서도 이 대진만은 금지 (양쪽 순서 무관)
+      if ((rt1 === 'MM' && rt2 === 'WW') || (rt1 === 'WW' && rt2 === 'MM')) mmVsWwGames++;
       const actualType = type1 === type2 ? (type1 === 'MW' ? 'MX' : type1) : null;
 
       for (const id of all) {
@@ -589,6 +594,7 @@ function computeStats(schedule, plan) {
     scoreDiffSq,
     earlyTightness,
     japbokGames,
+    mmVsWwGames,
     rankerMiss,
     diffCapViolations,
     diffCapList,
@@ -933,6 +939,7 @@ function buildPlan(config) {
 
 function constructSchedule(plan, rng, opts = {}) {
   const { allowPartnerRepeat = false, allowConsecutiveSit = false } = opts;
+  const ignoreGender = !!(plan.options && plan.options.ignoreGender);
   const maxDiff = plan.options ? plan.options.maxDiff : null;
   const maxMeet = plan.options ? plan.options.maxMeet : null;
   const tightRounds = plan.options && Array.isArray(plan.options.tightRounds) ? plan.options.tightRounds : [];
@@ -1338,6 +1345,9 @@ function constructSchedule(plan, rng, opts = {}) {
       let s = Math.abs(p.score + q.score - avgSum);
       if (allowPartnerRepeat) s += (partnersUsed.get(pairKey(p.id, q.id)) || 0) * 100;
       if (p.prefs.newMember || q.prefs.newMember) s += Math.min(p.score, q.score) * 0.8;
+      // 성별 무시 편성: 혼성 페어(남+여)를 선호해 남복/여복 팀 자체가 덜 생기게 한다.
+      // → 남복 팀 vs 여복 팀(남남 vs 여여) 대진이 구조적으로 거의 발생하지 않음.
+      if (ignoreGender && (p.realGender || p.gender) !== (q.realGender || q.gender)) s -= 6;
       s += rng.jitter(1.5);
       return s;
     }
@@ -1362,6 +1372,11 @@ function constructSchedule(plan, rng, opts = {}) {
           const diff = Math.abs(sum(A) - sum(B));
           cost += meetPen * 10 + diff;
           if (maxDiff != null && diff > maxDiff) cost += 500 * (diff - maxDiff); // 점수차 상한 위반은 사실상 배제
+          // 남복 팀 vs 여복 팀(남남 vs 여여) 금지 — 성별 무시 편성에서만 발생 가능, 사실상 배제
+          const realT = (t) => t.map((p) => p.realGender || p.gender).sort().join('');
+          const ra = realT(A);
+          const rb = realT(B);
+          if ((ra === 'MM' && rb === 'WW') || (ra === 'WW' && rb === 'MM')) cost += 800;
           const four = [...A, ...B];
           if (four.some((p) => p.prefs.newMember)) cost += Math.min(...four.map((p) => p.score)) * 0.3;
         }
@@ -1402,7 +1417,12 @@ function costOf(schedule, plan) {
   // 하드 제약 바로 아래 독립 계층으로 최우선 배치. 정기모임은 기존대로 연속 결장과 동반.
   const isMT = plan.type === 'monthly';
   return [
-    st.structural.length * 10 + st.partnerRepeats, // 하드 (항상 0이어야 함)
+    st.structural.length * 10, // 하드: 구조적 무결성 (항상 0이어야 함)
+    // 남복 팀 vs 여복 팀(남남 vs 여여) 대진 금지. 게임 내 팀 분할만으로 항상 해소 가능하고
+    // 출전·게임 수에 영향이 없어, 파트너 중복(하드)보다 위에 두어도 정상 모드는 영향 없음
+    // (정상 모드는 잡복 자체가 없어 항상 0). 성별 무시 편성에서만 실효.
+    st.mmVsWwGames,
+    st.partnerRepeats, // 하드: 파트너 중복 0 (성별 무시 폴백에선 이미 완화되어 남복vs여복 제거를 위해 양보)
     isMT ? st.spreadPenalty : 0, // [게임데이·앵그리대회] 인당 게임 수 편차 최우선
     st.japbokGames, // 잡복 게임 수 최소화 (성별 무시 편성 시에만 >0, 게임 수 다음으로 중요)
     st.consecutiveSits * 2 + (isMT ? 0 : st.spreadPenalty * 2), // 연속 결장 (정기는 게임 수 편차 동반)
@@ -2574,9 +2594,8 @@ function renderSettings() {
         <span class="hint">인원이 많아 연속 결장이 불가피할 때 수동으로 허용</span>
         <label><input type="checkbox" id="opt-partner" ${s.allowPartnerRepeat ? 'checked' : ''}> 파트너 중복 허용</label>
         <span class="hint">라운드가 많거나 인원이 적어 같은 파트너가 불가피할 때</span>
-        ${!isTour ? `
         <label><input type="checkbox" id="opt-nogender" ${s.ignoreGender ? 'checked' : ''}> 성별 구분 없이 편성 (잡복 허용)</label>
-        <span class="hint">남녀 상관없이 실력 순위만으로 팀 구성 — 극단적 성비일 때 사용</span>` : ''}
+        <span class="hint">남녀 상관없이 실력 순위만으로 팀 구성 — 극단적 성비일 때 사용. 잡복은 허용하되 남복 팀 vs 여복 팀(남남 vs 여여) 대진은 만들지 않습니다</span>
         <label>관리자 비밀번호 <input type="password" id="opt-pw" placeholder="${localStorage.getItem(K_KEY) ? '설정됨 · 변경하려면 입력' : '미설정'}" style="width:150px"> <button class="ghost mini2" id="pw-save">저장</button></label>
         <span class="hint">공유 링크 속 명단·설정이 이 비밀번호로 잠깁니다. 명단 수정 권한을 줄 사람(예: 회장)에게만 알려주세요. 변경하면 이전 링크로는 명단을 더 못 불러옵니다.</span>
       </div>
@@ -3309,7 +3328,7 @@ function buildConfig(seed) {
         rankerRounds: [],
         allowConsecutiveSit: s.allowConsecutiveSit,
         allowPartnerRepeat: s.allowPartnerRepeat,
-        ignoreGender: false,
+        ignoreGender: s.ignoreGender,
         strictGameCount: s.strictGameCount !== false,
       },
       seed,

@@ -32,6 +32,7 @@ export function computeStats(schedule, plan) {
     : Array.from({ length: Math.max(0, Number(opt.tightRounds) || 0) }, (_, i) => i + 1);
   let earlyTightness = 0; // 빡겜 라운드의 게임 내 실력 폭 합
   let japbokGames = 0; // 실제 성별 기준 잡복 게임 수 (성별 무시 편성 시 최소화 대상)
+  let mmVsWwGames = 0; // 남복 팀 vs 여복 팀(남남 vs 여여) 대진 — 잡복은 허용하되 이 대진만은 금지
 
   schedule.rounds.forEach((rd, r) => {
     const seen = new Map(); // id → 배정 횟수 (라운드 내 중복 감지)
@@ -71,7 +72,11 @@ export function computeStats(schedule, plan) {
       }
       // 실제 성별 기준 잡복 게임 수 (성별 무시 편성일 때도 진짜 잡복을 집계 — 최소화 대상)
       const realType = (team) => team.map((id) => byId.get(id).realGender || byId.get(id).gender).sort().join('');
-      if (realType(t1) !== realType(t2)) japbokGames++;
+      const rt1 = realType(t1);
+      const rt2 = realType(t2);
+      if (rt1 !== rt2) japbokGames++;
+      // 남복 팀 vs 여복 팀(MM vs WW) — 잡복 중에서도 이 대진만은 금지 (양쪽 순서 무관)
+      if ((rt1 === 'MM' && rt2 === 'WW') || (rt1 === 'WW' && rt2 === 'MM')) mmVsWwGames++;
       const actualType = type1 === type2 ? (type1 === 'MW' ? 'MX' : type1) : null;
 
       for (const id of all) {
@@ -346,6 +351,7 @@ export function computeStats(schedule, plan) {
     scoreDiffSq,
     earlyTightness,
     japbokGames,
+    mmVsWwGames,
     rankerMiss,
     diffCapViolations,
     diffCapList,

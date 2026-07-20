@@ -6,6 +6,7 @@ import { enumerateCompositions } from './planner.js';
 
 export function constructSchedule(plan, rng, opts = {}) {
   const { allowPartnerRepeat = false, allowConsecutiveSit = false } = opts;
+  const ignoreGender = !!(plan.options && plan.options.ignoreGender);
   const maxDiff = plan.options ? plan.options.maxDiff : null;
   const maxMeet = plan.options ? plan.options.maxMeet : null;
   const tightRounds = plan.options && Array.isArray(plan.options.tightRounds) ? plan.options.tightRounds : [];
@@ -411,6 +412,9 @@ export function constructSchedule(plan, rng, opts = {}) {
       let s = Math.abs(p.score + q.score - avgSum);
       if (allowPartnerRepeat) s += (partnersUsed.get(pairKey(p.id, q.id)) || 0) * 100;
       if (p.prefs.newMember || q.prefs.newMember) s += Math.min(p.score, q.score) * 0.8;
+      // 성별 무시 편성: 혼성 페어(남+여)를 선호해 남복/여복 팀 자체가 덜 생기게 한다.
+      // → 남복 팀 vs 여복 팀(남남 vs 여여) 대진이 구조적으로 거의 발생하지 않음.
+      if (ignoreGender && (p.realGender || p.gender) !== (q.realGender || q.gender)) s -= 6;
       s += rng.jitter(1.5);
       return s;
     }
@@ -435,6 +439,11 @@ export function constructSchedule(plan, rng, opts = {}) {
           const diff = Math.abs(sum(A) - sum(B));
           cost += meetPen * 10 + diff;
           if (maxDiff != null && diff > maxDiff) cost += 500 * (diff - maxDiff); // 점수차 상한 위반은 사실상 배제
+          // 남복 팀 vs 여복 팀(남남 vs 여여) 금지 — 성별 무시 편성에서만 발생 가능, 사실상 배제
+          const realT = (t) => t.map((p) => p.realGender || p.gender).sort().join('');
+          const ra = realT(A);
+          const rb = realT(B);
+          if ((ra === 'MM' && rb === 'WW') || (ra === 'WW' && rb === 'MM')) cost += 800;
           const four = [...A, ...B];
           if (four.some((p) => p.prefs.newMember)) cost += Math.min(...four.map((p) => p.score)) * 0.3;
         }

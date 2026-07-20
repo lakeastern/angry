@@ -79,6 +79,39 @@ for (const type of ['regular', 'monthly']) {
 
         // 게임 수 편차는 완화 케이스가 아니면 2 이하 (성별 강제 편차 케이스 포함 상한)
         assert.ok(res.stats.spreadPenalty <= 2, `${name}: 게임 수 편차 과다 (${JSON.stringify(res.stats.spreadDetails)})`);
+
+        // 잡복은 허용하되 남복 팀 vs 여복 팀(남남 vs 여여) 대진은 절대 금지
+        assert.equal(res.stats.mmVsWwGames, 0, `${name}: 남복 vs 여복(남남 vs 여여) 대진 발생`);
+      });
+    }
+  }
+}
+
+// 성별 무시 편성(잡복 허용) 강제 — 잡복은 생기더라도 남복 vs 여복 대진은 0이어야 한다.
+for (const type of ['regular', 'monthly']) {
+  for (let N = 6; N <= 16; N += 2) {
+    for (let M = Math.max(0, N - 12); M <= Math.min(12, N); M++) {
+      const W = N - M;
+      const name = `[성별무시] ${type} 남${M} 여${W} (${N}명)`;
+      test(name, () => {
+        let res;
+        try {
+          res = generateSchedule({
+            type,
+            rounds: 4,
+            gamesPerPerson: 4,
+            players: makePlayers(M, W),
+            seed: 20260720,
+            searchBudget: BUDGET,
+            options: { ignoreGender: true, strictGameCount: type === 'monthly' },
+          });
+        } catch (e) {
+          assert.ok(e instanceof SchedulerError, `${name}: 예기치 못한 예외 — ${e.stack}`);
+          return;
+        }
+        const structural = res.errors.filter((e) => HARD_STRUCTURAL.includes(e.code));
+        assert.deepEqual(structural, [], `${name}: 구조적 위반 발생`);
+        assert.equal(res.stats.mmVsWwGames, 0, `${name}: 남복 vs 여복(남남 vs 여여) 대진 발생`);
       });
     }
   }
