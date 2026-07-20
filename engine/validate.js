@@ -18,7 +18,7 @@ export function computeStats(schedule, plan) {
 
   const per = new Map();
   for (const p of plan.players) {
-    per.set(p.id, { games: 0, sits: 0, mixed: 0, sitRounds: [], gameRounds: [] });
+    per.set(p.id, { games: 0, sits: 0, mixed: 0, japbok: 0, sitRounds: [], gameRounds: [] });
   }
 
   const partnerCount = new Map();
@@ -77,13 +77,17 @@ export function computeStats(schedule, plan) {
       if (rt1 !== rt2) japbokGames++;
       // 남복 팀 vs 여복 팀(MM vs WW) — 잡복 중에서도 이 대진만은 금지 (양쪽 순서 무관)
       if ((rt1 === 'MM' && rt2 === 'WW') || (rt1 === 'WW' && rt2 === 'MM')) mmVsWwGames++;
-      const actualType = type1 === type2 ? (type1 === 'MW' ? 'MX' : type1) : null;
+      // 인당 혼복/잡복 집계는 실제 성별(realGender) 기준 — 성별 무시 편성에서도 올바르게 센다.
+      // 잡복 게임(양 팀 실제 유형 불일치)은 참가자 전원 잡복 1회, 실제 혼복(양 팀 MW)은 혼복 1회.
+      const realMixed = rt1 === rt2 && rt1 === 'MW';
+      const realJapbok = rt1 !== rt2;
 
       for (const id of all) {
         const s = per.get(id);
         s.games++;
         s.gameRounds.push(r);
-        if (actualType === 'MX') s.mixed++;
+        if (realMixed) s.mixed++;
+        else if (realJapbok) s.japbok++;
       }
       for (const team of [t1, t2]) {
         const k = pairKey(team[0], team[1]);
