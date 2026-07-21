@@ -36,6 +36,10 @@
   .chip.w.on { background: var(--women-bg); border-color: var(--women); color: var(--women); font-weight: 700; }
   .detail-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
   .detail-table th, .detail-table td { border-bottom: 1px solid #eee; padding: 5px 6px; text-align: center; }
+  /* 랭킹 표: 컬럼폭은 내용(글씨)에 맞추고, 좁은 화면에서는 가로 스크롤로 넘겨 본다 */
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 6px; }
+  .rank-table { width: auto; max-width: none; }
+  .rank-table th, .rank-table td { white-space: nowrap; }
   .detail-table th { color: var(--muted); font-weight: 600; }
   .detail-table td:first-child { font-weight: 700; }
   .xr {
@@ -199,7 +203,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-21 00:30</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-21 22:31</span></div>
 <div id="toast"></div>
 <script>
 'use strict';
@@ -2520,10 +2524,10 @@ function renderRanking() {
       ${results.length ? filterChips : ''}
       ${rows.length
         ? `<div class="hint-inline" style="display:block;margin:6px 0">${esc(scopeLabel)}</div>
-           <table class="detail-table" style="max-width:${single ? 720 : 560}px">
+           <div class="table-scroll"><table class="detail-table rank-table">
              <tr><th>순위</th><th style="text-align:left">이름</th><th>종합점수</th><th>승-패</th><th>득</th><th>실</th><th>득실차</th><th>경기</th>${single ? '<th style="text-align:left">경기별(득실)</th>' : ''}</tr>
              ${rankRows}
-           </table>
+           </table></div>
            <div style="margin-top:10px"><b class="hint-inline">저장된 대회</b>${eventRows}</div>`
         : '<div class="hint" style="margin-top:8px">아직 저장된 대회 결과가 없습니다. 앵그리대회 대진표에서 "📝 결과 입력"으로 스코어를 입력하고 저장하세요.</div>'}
       <div class="row" style="margin-top:10px">

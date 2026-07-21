@@ -36,6 +36,10 @@
   .chip.w.on { background: var(--women-bg); border-color: var(--women); color: var(--women); font-weight: 700; }
   .detail-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
   .detail-table th, .detail-table td { border-bottom: 1px solid #eee; padding: 5px 6px; text-align: center; }
+  /* 랭킹 표: 컬럼폭은 내용(글씨)에 맞추고, 좁은 화면에서는 가로 스크롤로 넘겨 본다 */
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 6px; }
+  .rank-table { width: auto; max-width: none; }
+  .rank-table th, .rank-table td { white-space: nowrap; }
   .detail-table th { color: var(--muted); font-weight: 600; }
   .detail-table td:first-child { font-weight: 700; }
   .xr {
@@ -199,7 +203,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-21 00:30</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-21 22:31</span></div>
 <div id="toast"></div>
 <script type="module" src="./app.js"></script>
 </body>

@@ -705,10 +705,10 @@ function renderRanking() {
       ${results.length ? filterChips : ''}
       ${rows.length
         ? `<div class="hint-inline" style="display:block;margin:6px 0">${esc(scopeLabel)}</div>
-           <table class="detail-table" style="max-width:${single ? 720 : 560}px">
+           <div class="table-scroll"><table class="detail-table rank-table">
              <tr><th>순위</th><th style="text-align:left">이름</th><th>종합점수</th><th>승-패</th><th>득</th><th>실</th><th>득실차</th><th>경기</th>${single ? '<th style="text-align:left">경기별(득실)</th>' : ''}</tr>
              ${rankRows}
-           </table>
+           </table></div>
            <div style="margin-top:10px"><b class="hint-inline">저장된 대회</b>${eventRows}</div>`
         : '<div class="hint" style="margin-top:8px">아직 저장된 대회 결과가 없습니다. 앵그리대회 대진표에서 "📝 결과 입력"으로 스코어를 입력하고 저장하세요.</div>'}
       <div class="row" style="margin-top:10px">
