@@ -3,6 +3,18 @@ import { generateSchedule, validateSchedule, SchedulerError } from './engine/sch
 import { buildPlan } from './engine/planner.js';
 import { pairKey } from './engine/validate.js';
 import { computeRanking } from './engine/ranking.js';
+import { liveConfigure, liveEnabled, liveCreate, liveGetEvent, liveSetScore, liveSubscribeScores, liveFetchScores, liveDelete } from './live.js';
+
+// Firebase 실시간 대회 설정 (공개 식별자 — 보안은 Firestore 규칙으로. 비밀 아님)
+const FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyAJa6ds_dlAv3_YzXAhCPiDvnhiNy9y_wM',
+  authDomain: 'angry-tennis.firebaseapp.com',
+  projectId: 'angry-tennis',
+  storageBucket: 'angry-tennis.firebasestorage.app',
+  messagingSenderId: '941863316501',
+  appId: '1:941863316501:web:9c68953de2cf79a202321c',
+};
+liveConfigure(FIREBASE_CONFIG);
 
 const K_ROSTER = 'angry-roster-v2';
 const K_SETTINGS = 'angry-settings-v2';
@@ -51,8 +63,9 @@ const state = {
   rankFilter: 'all', // 앵그리랭킹: 'all'(전체 누적) | resultId(대회별 단일)
   ui: { roster: null, adv: null, exclude: null, ranking: null, advHelp: false }, // details 접힘 상태 (null = 자동) + 고급 설정 설명 표시
   share: null, // 공유 링크로 열었을 때의 페이로드
-  viewerMode: false, // 'b'(대진표 보기) | 'r'(명단 수신 대기) | false
+  viewerMode: false, // 'b'(대진표 보기) | 'r'(명단 수신 대기) | 'live'(실시간 대회) | false
   shareUnlocked: false, // 공유 링크를 관리자 키로 자동 해독했는지
+  live: null, // 실시간 대회: { id, event, scores:{gid:{a,b}}, unsub, saving }
   undoStack: [], // 수동 스왑 되돌리기용 rounds 스냅샷 (현재 버전 한정)
   redoStack: [],
 };
@@ -260,6 +273,9 @@ function importShared(dec, payload) {
 }
 
 async function handleShareHash() {
+  // 실시간 대회 링크: #live=<랜덤ID>
+  const live = location.hash.match(/^#live=([A-Za-z0-9_-]{6,})$/);
+  if (live) { await openLiveEvent(live[1]); return; }
   const m = location.hash.match(/^#d=([01])([A-Za-z0-9_-]+)$/);
   if (!m) return;
   try {
@@ -319,6 +335,11 @@ function effectiveExclude(id) {
 
 // ─── 렌더링 ───
 function render() {
+  if (state.viewerMode === 'live') {
+    $('#app').innerHTML = renderLiveViewer();
+    bindLiveViewer();
+    return;
+  }
   if (state.viewerMode) {
     $('#app').innerHTML = renderViewer();
     bindViewer();
@@ -394,6 +415,147 @@ function renderViewer() {
 function viewerName(b, id) {
   if (b.mode === 'tournament' && state.showRealNames && b.aliasReal && b.aliasReal[id]) return b.aliasReal[id];
   return b.names[id] ? b.names[id][0] : id;
+}
+
+// ─── 🔴 실시간 대회 (라이브 스코어) ───
+const gidOf = (r, court) => `${r}_${court}`;
+
+async function openLiveEvent(id) {
+  state.viewerMode = 'live';
+  state.live = { id, event: null, scores: {}, unsub: null, error: null };
+  try {
+    const ev = await liveGetEvent(id);
+    if (!ev) { state.live.error = '대회를 찾을 수 없습니다 (종료되었거나 링크가 올바르지 않습니다).'; render(); return; }
+    state.live.event = ev;
+    render();
+    state.live.unsub = await liveSubscribeScores(id, (scores) => {
+      if (!state.live || state.live.id !== id) return;
+      state.live.scores = scores;
+      applyLiveUpdate();
+    });
+  } catch (e) {
+    state.live.error = '실시간 서버에 연결할 수 없습니다. 인터넷 연결을 확인하고 새로고침하세요.';
+    render();
+  }
+}
+
+// 라이브 이벤트(브래킷+현재 스코어)로 랭킹 행 계산
+function liveRankingRows() {
+  const ev = state.live && state.live.event;
+  if (!ev) return [];
+  const b = ev.bracket;
+  const nameOf = (id) => (b.mode === 'tournament' && b.aliasReal && b.aliasReal[id]) ? b.aliasReal[id]
+    : (b.names[id] ? b.names[id][0] : id);
+  const ids = new Set();
+  const games = [];
+  b.rounds.forEach((rd, r) => rd.games.forEach((g) => {
+    (g.teams[0] || []).forEach((id) => ids.add(id));
+    (g.teams[1] || []).forEach((id) => ids.add(id));
+    const sc = state.live.scores[gidOf(r, g.court)] || {};
+    games.push({ teamA: g.teams[0], teamB: g.teams[1], scoreA: sc.a, scoreB: sc.b });
+  }));
+  const players = [...ids].map((id) => ({ memberId: id, name: nameOf(id) }));
+  return computeRanking([{ players, games }]);
+}
+
+function renderLiveRankingTable() {
+  const rows = liveRankingRows();
+  const medal = (rk) => (rk === 1 ? '🥇' : rk === 2 ? '🥈' : rk === 3 ? '🥉' : rk);
+  const played = rows.filter((r) => r.G > 0);
+  if (!played.length) return '<div class="hint" style="margin-top:6px">아직 입력된 게임 결과가 없습니다. 게임이 끝나면 위 대진표에서 점수를 입력하세요.</div>';
+  const body = played.map((r) => `<tr>
+    <td>${medal(r.rank)}</td>
+    <td style="text-align:left;font-weight:700">${esc(r.name)}</td>
+    <td><b>${r.points}</b></td>
+    <td>${r.W}-${r.L}</td>
+    <td>${r.GD > 0 ? '+' : ''}${r.GD}</td>
+    <td>${r.G}</td>
+  </tr>`).join('');
+  return `<div class="table-scroll"><table class="detail-table rank-table">
+    <tr><th>순위</th><th style="text-align:left">이름</th><th>종합점수</th><th>승-패</th><th>득실차</th><th>경기</th></tr>
+    ${body}
+  </table></div>`;
+}
+
+function renderLiveViewer() {
+  const L = state.live;
+  if (!L) return '<section class="card"><p>로딩 중…</p></section>';
+  if (L.error) {
+    return `<h1 class="vtitle">🎾 앵그리 실시간 대회</h1>
+      <section class="card"><div class="banner error">${esc(L.error)}</div>
+      <button class="ghost" onclick="location.href='${PUBLIC_URL}'">앱으로 이동</button></section>`;
+  }
+  if (!L.event) return '<section class="card"><p>대회를 불러오는 중…</p></section>';
+  const b = L.event.bracket;
+  const isTour = b.mode === 'tournament';
+  const hasAssign = isTour && b.aliasReal && Object.keys(b.aliasReal).length > 0;
+  const nameV = (id) => viewerName(b, id);
+  const tokV = (id) => `<span class="tok" style="cursor:default">${esc(nameV(id))}</span>`;
+  const isReg = b.type === 'regular';
+  const maxCourts = Math.max(...b.rounds.map((rd) => rd.games.length));
+  const courtHeads = Array.from({ length: maxCourts }, (_, i) => `<th>${'abc'[i]}코트</th>`).join('');
+  const rows = b.rounds.map((rd, r) => {
+    const cells = rd.games.map((g) => {
+      const gid = gidOf(r, g.court);
+      const sc = L.scores[gid] || {};
+      return `<td class="gamecell">
+        <div class="tline">${g.teams[0].map(tokV).join('')}</div>
+        <div class="tline"><span class="vs">vs</span>${g.teams[1].map(tokV).join('')}</div>
+        <div class="scorein"><input type="number" min="0" max="99" inputmode="numeric" data-ls="${gid}:a" value="${sc.a == null ? '' : sc.a}"><span>:</span><input type="number" min="0" max="99" inputmode="numeric" data-ls="${gid}:b" value="${sc.b == null ? '' : sc.b}"></div>
+      </td>`;
+    }).join('') + '<td class="emptycourt">—</td>'.repeat(maxCourts - rd.games.length);
+    const lesson = rd.lesson.map(tokV).join('') + (rd.excluded || []).map(tokV).join('') || '<span class="lessonlabel">—</span>';
+    return `<tr><td class="roundcell">${r + 1}R</td>${cells}<td><div class="lessonbox">${lesson}</div></td></tr>`;
+  }).join('');
+  const title = `${esc(L.event.title || '앵그리대회')}${L.event.date ? ` <span class="hint-inline">(${esc(L.event.date)})</span>` : ''}`;
+  return `
+  <section class="card">
+    <h1 class="vtitle">🔴 실시간 대회 — ${title}</h1>
+    <div class="hint" style="margin-bottom:8px">게임이 끝나면 아래 대진표의 해당 게임 칸에 점수를 입력하세요. 모두의 화면에서 순위가 실시간으로 갱신됩니다.</div>
+    <div class="bracket-scroll" style="text-align:center"><div style="display:inline-block">
+      <table class="bracket">
+        <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
+        ${rows}
+      </table>
+    </div></div>
+    ${isTour && hasAssign ? `<div class="row no-print" style="margin-top:8px"><button class="ghost mini2" id="lv-nametoggle">${state.showRealNames ? '별칭 보기' : '실명 보기'}</button></div>` : ''}
+  </section>
+  <section class="card">
+    <h2>🏆 실시간 순위 <span class="hint-inline">— 승수 우선 · 득실차 순</span></h2>
+    <div id="live-rank">${renderLiveRankingTable()}</div>
+  </section>`;
+}
+
+// 스냅샷 수신 시: 편집 중이 아닌 입력칸 값 + 순위만 갱신 (전체 재렌더로 포커스 잃지 않게)
+function applyLiveUpdate() {
+  document.querySelectorAll('[data-ls]').forEach((el) => {
+    if (el === document.activeElement) return;
+    const [gid, side] = el.dataset.ls.split(':');
+    const sc = state.live.scores[gid] || {};
+    const v = side === 'a' ? sc.a : sc.b;
+    el.value = (v == null ? '' : v);
+  });
+  const rk = document.querySelector('#live-rank');
+  if (rk) rk.innerHTML = renderLiveRankingTable();
+}
+
+function bindLiveViewer() {
+  const nt = $('#lv-nametoggle');
+  if (nt) nt.addEventListener('click', () => { state.showRealNames = !state.showRealNames; render(); });
+  document.querySelectorAll('[data-ls]').forEach((el) => {
+    el.addEventListener('change', async () => {
+      const gid = el.dataset.ls.split(':')[0];
+      const aEl = document.querySelector(`[data-ls="${gid}:a"]`);
+      const bEl = document.querySelector(`[data-ls="${gid}:b"]`);
+      const parse = (x) => (x.value === '' ? null : Math.max(0, Math.min(99, +x.value || 0)));
+      const a = parse(aEl), b = parse(bEl);
+      state.live.scores[gid] = { a, b }; // 낙관적 반영
+      const rk = document.querySelector('#live-rank');
+      if (rk) rk.innerHTML = renderLiveRankingTable();
+      try { await liveSetScore(state.live.id, gid, a, b); }
+      catch (e) { toast('점수 저장 실패 — 인터넷 연결을 확인하세요.'); }
+    });
+  });
 }
 
 // 대진표를 Canvas 2D로 직접 그려 PNG로 저장 (외부 라이브러리 없음 · PC/모바일 동작)
@@ -1005,10 +1167,14 @@ function renderResult() {
     ? `<button class="ghost mini2" id="score-toggle">${state.scoreMode ? '결과 입력 닫기' : '📝 결과 입력'}</button>`
     : '';
   const imageBtn = '<button class="ghost mini2" id="result-image">📷 이미지 저장</button>';
+  // 실시간 대회(게임데이·앵그리대회): 시작 버튼 / 진행 중 표시
+  const liveBtn = (!isReg && liveEnabled() && !res.liveId)
+    ? '<button class="ghost mini2" id="live-start">🔴 실시간 대회 시작</button>'
+    : '';
 
   return `
   <section class="card">
-    <h2>${modeLabel} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span> <span class="no-print">${imageBtn} ${toggleBtn} ${scoreBtn}</span></h2>
+    <h2>${modeLabel} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span> <span class="no-print">${imageBtn} ${toggleBtn} ${scoreBtn} ${liveBtn}</span></h2>
     <div class="result-cols">
       <div class="bracket-col">
         <div class="bracket-scroll"><table class="bracket">
@@ -1020,6 +1186,13 @@ function renderResult() {
           ${assignedFull
             ? '<button class="primary" id="score-save">이 대회 결과 저장</button> <span class="hint-inline">각 게임의 스코어(예: 6 : 4)를 입력하고 저장하면 앵그리랭킹에 누적됩니다.</span>'
             : '<span class="hint" style="color:#b45309">먼저 아래 별칭 배정을 모두 완료해야 결과를 저장할 수 있습니다 (제비뽑기).</span>'}
+        </div>` : ''}
+        ${res.liveId ? `<div class="scorebar no-print live-bar">
+          <b>🔴 실시간 대회 진행 중</b>
+          <button class="ghost mini2" id="live-copy">🔗 링크 복사</button>
+          <button class="ghost mini2" id="live-open">실시간 화면 열기</button>
+          ${isTour ? '<button class="primary mini2" id="live-finalize">결과 확정·저장</button>' : ''}
+          <span class="hint-inline">멤버들이 링크에서 점수를 입력하면 실시간 순위가 갱신됩니다.${isTour ? ' 확정 저장하면 앵그리랭킹에 누적되고 실시간 대회가 종료됩니다.' : ''}</span>
         </div>` : ''}
       </div>
       ${warnHtml ? `<div class="note-side">${warnHtml}</div>` : ''}
@@ -1437,6 +1610,103 @@ function bindResult() {
   );
   const scoreSave = $('#score-save');
   if (scoreSave) scoreSave.addEventListener('click', () => saveTournamentResult());
+
+  const liveStart = $('#live-start');
+  if (liveStart) liveStart.addEventListener('click', startLiveEvent);
+  const liveCopy = $('#live-copy');
+  if (liveCopy) liveCopy.addEventListener('click', () => { if (state.result.liveId) copyLiveLink(state.result.liveId); });
+  const liveOpen = $('#live-open');
+  if (liveOpen) liveOpen.addEventListener('click', () => {
+    const base = location.protocol === 'file:' ? PUBLIC_URL : location.href.split('#')[0];
+    location.href = `${base}#live=${state.result.liveId}`;
+  });
+  const liveFin = $('#live-finalize');
+  if (liveFin) liveFin.addEventListener('click', finalizeLiveEvent);
+}
+
+// 실시간 대회 링크 생성·복사 (TinyURL 단축 시도)
+async function copyLiveLink(id) {
+  const base = location.protocol === 'file:' ? PUBLIC_URL : location.href.split('#')[0];
+  const link = `${base}#live=${id}`;
+  const finalLink = await shortenLink(link);
+  window.__lastShareLink = finalLink;
+  try {
+    await navigator.clipboard.writeText(finalLink);
+    toast('실시간 대회 링크가 복사되었습니다. 카톡에 붙여넣으세요!');
+  } catch (e) {
+    prompt('아래 링크를 복사하세요:', finalLink);
+  }
+}
+
+// 관리자: 현재 대진표로 실시간 대회 열기 → Firestore 이벤트 생성 + 링크 복사
+async function startLiveEvent() {
+  const res = state.result;
+  const entry = state.history[state.currentIdx];
+  if (!res || res.fatal || !entry) { toast('먼저 대진표를 생성하세요.'); return; }
+  const names = {};
+  entry.config.players.forEach((p) => (names[p.id] = [p.name, p.gender]));
+  const mode = entry.mode || (entry.config.type === 'regular' ? 'regular' : 'monthly');
+  const bracket = { type: entry.config.type, rounds: res.rounds, names, mode };
+  if (mode === 'tournament') {
+    const aliasReal = {};
+    Object.entries(entry.aliasAssign || {}).forEach(([alias, mid]) => { const m = memberOf(mid); if (m) aliasReal[alias] = m.name; });
+    bracket.aliasReal = aliasReal;
+  }
+  toast('실시간 대회를 여는 중…');
+  try {
+    const id = await liveCreate(bracket, {
+      mode,
+      title: mode === 'tournament' ? '앵그리대회' : '게임데이',
+      date: new Date().toLocaleDateString('ko-KR'),
+    });
+    res.liveId = id;
+    entry.liveId = id;
+    persistAll();
+    render();
+    await copyLiveLink(id);
+  } catch (e) {
+    toast('실시간 대회 열기 실패 — 인터넷 연결을 확인하세요.');
+  }
+}
+
+// 관리자: 실시간 점수를 확정해 앵그리랭킹(로컬 누적)에 저장하고 실시간 대회 종료
+async function finalizeLiveEvent() {
+  const res = state.result;
+  const entry = state.history[state.currentIdx];
+  if (!res || !res.liveId) return;
+  const assign = res.aliasAssign || {};
+  if (Object.values(assign).filter(Boolean).length !== res.plan.byId.size) {
+    toast('먼저 별칭 배정(제비뽑기)을 모두 완료하세요.');
+    return;
+  }
+  let scores;
+  try { scores = await liveFetchScores(res.liveId); }
+  catch (e) { toast('실시간 점수를 불러오지 못했습니다. 인터넷 연결을 확인하세요.'); return; }
+  const memberOfAlias = (aliasId) => assign[aliasId];
+  const games = [];
+  let entered = 0, tie = 0;
+  res.rounds.forEach((rd, r) => rd.games.forEach((g) => {
+    const sc = scores[gidOf(r, g.court)] || {};
+    const a = sc.a, b = sc.b;
+    if (a == null || b == null) return;
+    entered++;
+    if (a === b) { tie++; return; }
+    games.push({ round: r, court: g.court, teamA: g.teams[0].map(memberOfAlias), teamB: g.teams[1].map(memberOfAlias), scoreA: a, scoreB: b });
+  }));
+  if (!entered) { toast('입력된 게임 점수가 없습니다.'); return; }
+  if (tie > 0) { toast(`동점 게임이 ${tie}개 있습니다. 실시간 화면에서 승패가 갈리도록 수정 후 확정하세요.`); return; }
+  const players = [...new Set(Object.values(assign).filter(Boolean))].map((mid) => ({ memberId: mid, name: (memberOf(mid) || {}).name || mid }));
+  const id = (entry && entry.resultId) || uid();
+  resultStore.add({ id, date: new Date().toLocaleDateString('ko-KR'), mode: 'tournament', title: '앵그리대회', players, games });
+  if (entry) { entry.resultId = id; }
+  const liveId = res.liveId;
+  res.liveId = null;
+  if (entry) entry.liveId = null;
+  persistAll();
+  try { await liveDelete(liveId); } catch (e) { /* 정리 실패는 무시 */ }
+  state.ui.ranking = true;
+  toast('결과를 확정해 앵그리랭킹에 저장했습니다. 실시간 대회가 종료되었습니다.');
+  render();
 }
 
 function loadScoresFromEntry() {
@@ -1652,6 +1922,7 @@ function viewVersion(i) {
       edited: !!entry.edited,
       mode: entry.mode || (plan.type === 'regular' ? 'regular' : 'monthly'),
       aliasAssign: entry.aliasAssign ? deepClone(entry.aliasAssign) : {},
+      liveId: entry.liveId || null, // 진행 중인 실시간 대회가 있으면 유지
     };
     state.currentIdx = i;
     state.swapSel = null;
@@ -1786,7 +2057,7 @@ async function init() {
 }
 // 열려 있는 탭에 공유 링크를 붙여넣는 경우에도 동작하도록
 window.addEventListener('hashchange', () => {
-  if (location.hash.startsWith('#d=')) location.reload();
+  if (location.hash.startsWith('#d=') || location.hash.startsWith('#live=')) location.reload();
 });
 // 스왑 되돌리기/다시 실행 단축키 (입력창에 타이핑 중일 때는 제외)
 window.addEventListener('keydown', (e) => {

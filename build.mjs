@@ -16,6 +16,7 @@ const ENGINE_FILES = [
   'engine/optimize.js',
   'engine/scheduler.js',
   'engine/ranking.js',
+  'live.js',
   'app.js',
 ];
 
