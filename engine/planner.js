@@ -112,7 +112,6 @@ export function buildPlan(config) {
   // 라운드·코트 계획
   let R, courtsPerRound, extraGames = null, gamesPerPerson = null;
   const planWarnings = [];
-  const maxCourts = type === 'regular' ? 2 : 3;
 
   if (type === 'regular') {
     R = Number(config.rounds) || 5;
@@ -207,13 +206,6 @@ export function buildPlan(config) {
     }
   }
 
-  // 게임데이 혼복 커버리지 목표 게임 수 (성별 무시 모드에서는 해당 없음)
-  const minMixed = type === 'monthly' ? options.minMixedGames : 0;
-  let mixedNeedTotal = 0;
-  if (type === 'monthly' && M > 0 && W > 0 && minMixed > 0) {
-    mixedNeedTotal = Math.max(Math.ceil((M * minMixed) / 2), Math.ceil((W * minMixed) / 2));
-  }
-
   return {
     type,
     options,
@@ -230,7 +222,6 @@ export function buildPlan(config) {
     targetGames,
     gamesPerPerson,
     extraGames,
-    mixedNeedTotal,
     planWarnings,
   };
 }

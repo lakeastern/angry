@@ -17,7 +17,7 @@ import { costOf, cmpCost, hillClimb } from './optimize.js';
 import { validateSchedule, computeStats } from './validate.js';
 
 export { SchedulerError } from './planner.js';
-export { validateSchedule, computeStats } from './validate.js';
+export { validateSchedule } from './validate.js';
 
 // 랭커 라운드 멤버 선정: 생성당 1회, 시드 rng로 랜덤 (재시도 간 고정 → 매 생성마다 조합이 달라짐)
 // 동성복식 랭커: 참석자 상위 5명 풀에서 4명 / 혼복 랭커(혼복 위주 라운드와 겹칠 때): 남녀 각 상위 3명 풀에서 2명

@@ -216,7 +216,6 @@ async function makeShareLink(kind) {
   const base = location.protocol === 'file:' ? PUBLIC_URL : location.href.split('#')[0];
   const link = `${base}#d=${c}${b64uEncode(bytes)}`;
   const finalLink = await shortenLink(link);
-  window.__lastShareLink = finalLink;
   const label = kind === 'bracket' ? '대진표 공유 링크' : '명단 공유 링크';
   try {
     await navigator.clipboard.writeText(finalLink);
@@ -326,7 +325,9 @@ function estimatedRounds() {
   if (s.meetingType === 'regular') return Math.max(1, Math.min(12, s.rounds));
   const N = state.attend.selectedIds.length || 12;
   const T = Math.ceil((N * s.gamesPerPerson) / 4);
-  return Math.ceil(T / (N >= 12 ? 3 : N >= 8 ? 2 : 1));
+  const auto = N >= 12 ? 3 : N >= 8 ? 2 : 1;
+  const courts = Math.min(s.courts && s.courts >= 1 ? s.courts : auto, Math.max(1, Math.floor(N / 4))); // 코트 수 옵션 반영
+  return Math.ceil(T / courts);
 }
 
 function effectiveExclude(id) {
@@ -914,8 +915,7 @@ function renderRanking() {
         </select>
         <span class="hint-inline">각 선수의 앞선 N게임까지만 순위에 반영</span></div>`
     : '';
-  const fmtScore = (my, opp) => (my > 9 || opp > 9 ? `${my}-${opp}` : `${my}${opp}`);
-  const logCell = (mid) => (logByMember[mid] || []).map((x) => `<span class="${x.my > x.opp ? 'gwin' : x.my < x.opp ? 'glose' : 'gdraw'}">${fmtScore(x.my, x.opp)}</span>`).join(' ');
+  const logCell = (mid) => gameLogCell(logByMember[mid]); // 공용 헬퍼 재사용
   const hasDraw = rows.some((r) => r.D > 0); // 무승부가 있으면 승-무-패로 표기
   const rankRows = rows
     .map((r) => `<tr>
@@ -1772,7 +1772,6 @@ async function copyLiveLink(id) {
   const base = location.protocol === 'file:' ? PUBLIC_URL : location.href.split('#')[0];
   const link = `${base}#live=${id}`;
   const finalLink = await shortenLink(link);
-  window.__lastShareLink = finalLink;
   try {
     await navigator.clipboard.writeText(finalLink);
     toast('실시간 대회 링크가 복사되었습니다. 카톡에 붙여넣으세요!');
