@@ -423,6 +423,7 @@ const gidOf = (r, court) => `${r}_${court}`;
 
 async function openLiveEvent(id) {
   state.viewerMode = 'live';
+  state.showRealNames = true; // 실시간 화면은 기본 "실명 보기"
   state.live = { id, event: null, scores: {}, unsub: null, error: null };
   try {
     const ev = await liveGetEvent(id);
@@ -539,7 +540,7 @@ function renderLiveViewer() {
       </table>
     </div></div>
     <div class="row no-print" style="margin-top:8px">
-      <button class="ghost mini2" id="lv-home">← 앵그리 앱으로</button>
+      <button class="ghost mini2" id="lv-home">${window.opener ? '✕ 관리자 화면으로 (이 창 닫기)' : '← 앵그리 앱으로'}</button>
       ${isTour && hasAssign ? `<button class="ghost mini2" id="lv-nametoggle">${state.showRealNames ? '별칭 보기' : '실명 보기'}</button>` : ''}
     </div>
   </section>
@@ -565,7 +566,9 @@ function applyLiveUpdate() {
 function bindLiveViewer() {
   const home = $('#lv-home');
   if (home) home.addEventListener('click', () => {
-    // #live 해시를 지우고 새로고침 → 앵그리 앱 화면으로 (관리자는 자기 관리자 화면으로 복귀)
+    // 관리자가 새 탭으로 연 경우(window.opener 존재): 이 라이브 탭을 닫아 원래 관리자 탭으로 복귀
+    if (window.opener && !window.opener.closed) { window.close(); return; }
+    // 직접 링크로 연 경우: 해시 제거 후 새로고침 → 앵그리 앱 화면
     history.replaceState(null, '', location.pathname + location.search);
     location.reload();
   });
@@ -1627,10 +1630,14 @@ function bindResult() {
   const scoreToggle = $('#score-toggle');
   if (scoreToggle) scoreToggle.addEventListener('click', () => {
     state.scoreMode = !state.scoreMode;
-    if (state.scoreMode) state.scores = loadScoresFromEntry();
+    if (state.scoreMode) {
+      // 실시간 대회 진행 중이면 라이브 점수를, 아니면 저장된 버전 스냅샷을 불러온다
+      if (state.result && state.result.liveId) { state.scores = {}; syncLiveToStateScores(); }
+      else state.scores = loadScoresFromEntry();
+    }
     render();
   });
-  document.querySelectorAll('[data-score]').forEach((el) =>
+  document.querySelectorAll('[data-score]').forEach((el) => {
     el.addEventListener('input', () => {
       const [r, gi, side] = el.dataset.score.split(':');
       const key = r + ':' + gi;
@@ -1640,8 +1647,18 @@ function bindResult() {
       // 현재 버전 스냅샷에 입력값 보관(재편집 대비)
       const entry = state.history[state.currentIdx];
       if (entry) { entry.scores = state.scores; persistAll(); }
-    })
-  );
+    });
+    // 실시간 대회 진행 중이면 관리자 입력도 서버(Firestore)에 반영 → 멤버 화면과 동기화
+    el.addEventListener('change', () => {
+      if (!(state.result && state.result.liveId)) return;
+      const [r, gi] = el.dataset.score.split(':');
+      const cur = state.scores[r + ':' + gi] || {};
+      const g = state.result.rounds[+r].games[+gi];
+      const gid = gidOf(+r, g.court);
+      if (cur.a != null && cur.b != null) liveSetScore(state.result.liveId, gid, cur.a, cur.b).catch(() => {});
+      else if (cur.a == null && cur.b == null) liveSetScore(state.result.liveId, gid, null, null).catch(() => {});
+    });
+  });
   const scoreSave = $('#score-save');
   if (scoreSave) scoreSave.addEventListener('click', () => saveTournamentResult());
 
@@ -1653,9 +1670,10 @@ function bindResult() {
   if (liveOpen) liveOpen.addEventListener('click', () => {
     const base = location.protocol === 'file:' ? PUBLIC_URL : location.href.split('#')[0];
     const url = `${base}#live=${state.result.liveId}`;
-    // 새 탭으로 열어 관리자 화면을 유지 (팝업 차단 시 현재 탭으로 이동)
-    const w = window.open(url, '_blank');
+    // 이름 있는 탭으로 열어 관리자 화면 유지 + 반복 클릭 시 같은 탭 재사용 (팝업 차단 시 현재 탭)
+    const w = window.open(url, 'angry_live');
     if (!w) location.href = url;
+    else w.focus();
   });
   const liveFin = $('#live-finalize');
   if (liveFin) liveFin.addEventListener('click', finalizeLiveEvent);
@@ -1799,6 +1817,29 @@ function refreshAdminLive() {
   if (el && state.result && state.result.liveId) el.innerHTML = renderAdminLive();
 }
 
+// 라이브 스코어(gid: r_court) → 관리자 결과 입력 버퍼(state.scores: r:gi)로 반영
+function syncLiveToStateScores() {
+  const res = state.result;
+  if (!res || !res.liveId || !state.liveAdmin) return;
+  const sc = state.liveAdmin.scores || {};
+  res.rounds.forEach((rd, r) => rd.games.forEach((g, gi) => {
+    const v = sc[gidOf(r, g.court)];
+    if (v && (v.a != null || v.b != null)) state.scores[r + ':' + gi] = { a: v.a, b: v.b };
+    else delete state.scores[r + ':' + gi];
+  }));
+}
+
+// 결과 입력 칸 DOM 값 갱신 (편집 중인 칸은 건드리지 않음)
+function refreshScoreInputs() {
+  document.querySelectorAll('[data-score]').forEach((el) => {
+    if (el === document.activeElement) return;
+    const [r, gi, side] = el.dataset.score.split(':');
+    const sc = state.scores[r + ':' + gi] || {};
+    const v = side === 'a' ? sc.a : sc.b;
+    el.value = (v == null ? '' : v);
+  });
+}
+
 // 진행 중 라이브 이벤트를 관리자 화면에서 구독 (중복 구독 방지, 없으면 정리)
 function ensureAdminLiveSub() {
   const liveId = state.result && state.result.liveId;
@@ -1812,6 +1853,8 @@ function ensureAdminLiveSub() {
   liveSubscribeScores(liveId, (scores) => {
     if (!state.liveAdmin || state.liveAdmin.id !== liveId) return;
     state.liveAdmin.scores = scores;
+    syncLiveToStateScores();   // 결과 입력 버퍼에 반영
+    refreshScoreInputs();      // 결과 입력 칸(열려 있으면) 갱신
     refreshAdminLive();
   }).then((u) => { if (state.liveAdmin && state.liveAdmin.id === liveId) state.liveAdmin.unsub = u; }).catch(() => {});
 }
