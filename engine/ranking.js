@@ -4,13 +4,13 @@
 //   { id, date, mode, players: [{ memberId, name }],
 //     games: [{ round, court, teamA:[memberId,memberId], teamB:[...], scoreA, scoreB }] }
 //
-// 멤버별 누적 후 랭킹 정렬(사전식): 승수 W desc → 득실차 GD desc → 승률 desc → 이름
-// (승이 많은 사람은 득실차와 무관하게 항상 상위)
+// 멤버별 누적 후 랭킹 정렬(사전식): 승수 W desc → 득실차 GD desc → 득점 GF desc → 승률 desc → 이름
+// (승이 많은 사람은 득실차와 무관하게 항상 상위). 동점(무승부)은 승/패가 아니지만 경기·득실에는 포함.
 
 export function computeRanking(results) {
-  const stat = new Map(); // memberId → { memberId, name, G, W, L, GF, GA }
+  const stat = new Map(); // memberId → { memberId, name, G, W, D, L, GF, GA }
   const ensure = (id, name) => {
-    if (!stat.has(id)) stat.set(id, { memberId: id, name: name || id, G: 0, W: 0, L: 0, GF: 0, GA: 0 });
+    if (!stat.has(id)) stat.set(id, { memberId: id, name: name || id, G: 0, W: 0, D: 0, L: 0, GF: 0, GA: 0 });
     const s = stat.get(id);
     if (name) s.name = name; // 최신 이름으로 갱신
     return s;
@@ -26,27 +26,30 @@ export function computeRanking(results) {
       (Number(x.round) || 0) - (Number(y.round) || 0) || String(x.court || '').localeCompare(String(y.court || ''))
     );
     for (const g of games) {
+      // 미입력(null·undefined·빈값)은 제외. Number(null)===0 이므로 반드시 원값으로 먼저 판별.
+      if (g.scoreA == null || g.scoreB == null || g.scoreA === '' || g.scoreB === '') continue;
       const a = Number(g.scoreA);
       const b = Number(g.scoreB);
-      if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) continue; // 미입력·동점 게임은 집계 제외
+      if (!Number.isFinite(a) || !Number.isFinite(b)) continue; // 동점=무승부는 집계
       const teamA = (g.teamA || []).filter(Boolean);
       const teamB = (g.teamB || []).filter(Boolean);
-      const aWin = a > b;
-      const take = (id, gf, ga, win) => {
+      const outcome = a > b ? 'W' : (b > a ? 'L' : 'D'); // 팀A 기준 결과
+      const take = (id, gf, ga, oc) => {
         if ((counted.get(id) || 0) >= cap) return; // 상한 초과분은 점수에 반영하지 않음
         counted.set(id, (counted.get(id) || 0) + 1);
         const s = ensure(id, nameOf.get(id));
-        s.G++; s.GF += gf; s.GA += ga; if (win) s.W++; else s.L++;
+        s.G++; s.GF += gf; s.GA += ga;
+        if (oc === 'W') s.W++; else if (oc === 'L') s.L++; else s.D++;
       };
-      for (const id of teamA) take(id, a, b, aWin);
-      for (const id of teamB) take(id, b, a, !aWin);
+      for (const id of teamA) take(id, a, b, outcome);
+      for (const id of teamB) take(id, b, a, outcome === 'W' ? 'L' : outcome === 'L' ? 'W' : 'D');
     }
   }
 
   const rows = [...stat.values()].map((s) => ({
     ...s,
     GD: s.GF - s.GA,
-    points: s.W * 3, // 종합점수(승점) — 표시용. 순위는 아래 사전식 정렬
+    points: s.W * 3, // 종합점수(승점) — 표시용. 무승부는 종합점수엔 미반영(경기·득실·무로 기록, 순위는 승수 우선 후 득실차)
     winRate: s.G ? s.W / s.G : 0,
   }));
 

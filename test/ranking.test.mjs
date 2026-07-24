@@ -54,17 +54,36 @@ test('여러 대회 누적 합산', () => {
   assert.equal(A.G, 2); assert.equal(A.W, 2); assert.equal(A.GF, 12); assert.equal(A.GA, 6); assert.equal(A.GD, 6);
 });
 
-test('미입력·동점 게임은 집계에서 제외', () => {
+test('미입력은 제외, 동점(무승부)은 경기·득실에 포함', () => {
   const players = ['A', 'B', 'C', 'D'].map((id) => ({ memberId: id, name: id }));
   const rows = computeRanking([
     result([
-      g(['A', 'B'], ['C', 'D'], 6, 6), // 동점 → 제외
+      g(['A', 'B'], ['C', 'D'], 5, 5), // 동점 → 무승부로 집계
       g(['A', 'B'], ['C', 'D'], null, null), // 미입력 → 제외
-      g(['A', 'B'], ['C', 'D'], 6, 3), // 유효
+      g(['A', 'B'], ['C', 'D'], 6, 3), // 승
     ], players),
   ]);
   const A = rows.find((r) => r.memberId === 'A');
-  assert.equal(A.G, 1, '유효 게임 1개만 집계');
+  assert.equal(A.G, 2, '동점+승 = 2게임 집계(미입력 제외)');
+  assert.equal(A.W, 1); assert.equal(A.D, 1); assert.equal(A.L, 0);
+  assert.equal(A.GF, 11); assert.equal(A.GA, 8); assert.equal(A.GD, 3);
+  assert.equal(A.points, 3, '종합점수는 승×3 (무승부는 미반영)');
+});
+
+test('무승부는 승/패보다 순위 중립 — 득실차로 패보다 위', () => {
+  const players = ['A', 'B', 'C', 'D', 'E', 'F', 'p', 'q'].map((id) => ({ memberId: id, name: id }));
+  // A: 1무 (GD 0), C: 1패 (GD -3) → 둘 다 0승이지만 A가 위
+  const rows = computeRanking([
+    result([
+      g(['A', 'B'], ['p', 'q'], 5, 5), // A 무
+      g(['C', 'D'], ['E', 'F'], 3, 6), // C 패
+    ], players),
+  ]);
+  const A = rows.find((r) => r.memberId === 'A');
+  const C = rows.find((r) => r.memberId === 'C');
+  assert.equal(A.W, 0); assert.equal(C.W, 0);
+  assert.equal(A.D, 1); assert.equal(C.L, 1);
+  assert.ok(A.rank < C.rank, '0승 동일하지만 무승부(GD0)가 패배(GD-3)보다 위');
 });
 
 test('같은 득실차면 득점(GF) 많은 쪽이 위', () => {

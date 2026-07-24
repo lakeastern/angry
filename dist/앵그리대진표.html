@@ -183,6 +183,7 @@
   td.gamelog { text-align: left; font-variant-numeric: tabular-nums; letter-spacing: 0.5px; white-space: nowrap; }
   td.gamelog .gwin { color: var(--accent); font-weight: 700; }
   td.gamelog .glose { color: #9ca3af; }
+  td.gamelog .gdraw { color: #d97706; font-weight: 700; }
 
   /* 공유 링크 보기 전용 페이지 */
   .vtitle { text-align: center; font-size: 1.3rem; margin: 4px 0 16px; }
@@ -211,7 +212,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-24 22:33</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-24 22:46</span></div>
 <div id="toast"></div>
 <script>
 'use strict';
@@ -1765,13 +1766,13 @@ function generateSchedule(config) {
 //   { id, date, mode, players: [{ memberId, name }],
 //     games: [{ round, court, teamA:[memberId,memberId], teamB:[...], scoreA, scoreB }] }
 //
-// 멤버별 누적 후 랭킹 정렬(사전식): 승수 W desc → 득실차 GD desc → 승률 desc → 이름
-// (승이 많은 사람은 득실차와 무관하게 항상 상위)
+// 멤버별 누적 후 랭킹 정렬(사전식): 승수 W desc → 득실차 GD desc → 득점 GF desc → 승률 desc → 이름
+// (승이 많은 사람은 득실차와 무관하게 항상 상위). 동점(무승부)은 승/패가 아니지만 경기·득실에는 포함.
 
 function computeRanking(results) {
-  const stat = new Map(); // memberId → { memberId, name, G, W, L, GF, GA }
+  const stat = new Map(); // memberId → { memberId, name, G, W, D, L, GF, GA }
   const ensure = (id, name) => {
-    if (!stat.has(id)) stat.set(id, { memberId: id, name: name || id, G: 0, W: 0, L: 0, GF: 0, GA: 0 });
+    if (!stat.has(id)) stat.set(id, { memberId: id, name: name || id, G: 0, W: 0, D: 0, L: 0, GF: 0, GA: 0 });
     const s = stat.get(id);
     if (name) s.name = name; // 최신 이름으로 갱신
     return s;
@@ -1787,27 +1788,30 @@ function computeRanking(results) {
       (Number(x.round) || 0) - (Number(y.round) || 0) || String(x.court || '').localeCompare(String(y.court || ''))
     );
     for (const g of games) {
+      // 미입력(null·undefined·빈값)은 제외. Number(null)===0 이므로 반드시 원값으로 먼저 판별.
+      if (g.scoreA == null || g.scoreB == null || g.scoreA === '' || g.scoreB === '') continue;
       const a = Number(g.scoreA);
       const b = Number(g.scoreB);
-      if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) continue; // 미입력·동점 게임은 집계 제외
+      if (!Number.isFinite(a) || !Number.isFinite(b)) continue; // 동점=무승부는 집계
       const teamA = (g.teamA || []).filter(Boolean);
       const teamB = (g.teamB || []).filter(Boolean);
-      const aWin = a > b;
-      const take = (id, gf, ga, win) => {
+      const outcome = a > b ? 'W' : (b > a ? 'L' : 'D'); // 팀A 기준 결과
+      const take = (id, gf, ga, oc) => {
         if ((counted.get(id) || 0) >= cap) return; // 상한 초과분은 점수에 반영하지 않음
         counted.set(id, (counted.get(id) || 0) + 1);
         const s = ensure(id, nameOf.get(id));
-        s.G++; s.GF += gf; s.GA += ga; if (win) s.W++; else s.L++;
+        s.G++; s.GF += gf; s.GA += ga;
+        if (oc === 'W') s.W++; else if (oc === 'L') s.L++; else s.D++;
       };
-      for (const id of teamA) take(id, a, b, aWin);
-      for (const id of teamB) take(id, b, a, !aWin);
+      for (const id of teamA) take(id, a, b, outcome);
+      for (const id of teamB) take(id, b, a, outcome === 'W' ? 'L' : outcome === 'L' ? 'W' : 'D');
     }
   }
 
   const rows = [...stat.values()].map((s) => ({
     ...s,
     GD: s.GF - s.GA,
-    points: s.W * 3, // 종합점수(승점) — 표시용. 순위는 아래 사전식 정렬
+    points: s.W * 3, // 종합점수(승점) — 표시용. 무승부는 종합점수엔 미반영(경기·득실·무로 기록, 순위는 승수 우선 후 득실차)
     winRate: s.G ? s.W / s.G : 0,
   }));
 
@@ -2402,7 +2406,7 @@ async function openLiveEvent(id) {
 
 // 게임 스코어 표기 (한 자리는 붙여서 60, 두 자리 이상은 6-10)
 function fmtGameScore(my, opp) { return (my > 9 || opp > 9) ? `${my}-${opp}` : `${my}${opp}`; }
-function gameLogCell(arr) { return (arr || []).map((x) => `<span class="${x.my > x.opp ? 'gwin' : 'glose'}">${fmtGameScore(x.my, x.opp)}</span>`).join(' '); }
+function gameLogCell(arr) { return (arr || []).map((x) => `<span class="${x.my > x.opp ? 'gwin' : x.my < x.opp ? 'glose' : 'gdraw'}">${fmtGameScore(x.my, x.opp)}</span>`).join(' '); }
 
 // 대진(rounds) + 스코어 + 이름함수 → { rows(랭킹), log(선수별 경기 스코어) } (뷰어·관리자 공용)
 function rankingDataFrom(rounds, scores, nameOf, cap) {
@@ -2432,11 +2436,13 @@ function rankTableHtml(rows, log) {
   const medal = (rk) => (rk === 1 ? '🥇' : rk === 2 ? '🥈' : rk === 3 ? '🥉' : rk);
   const played = rows.filter((r) => r.G > 0);
   if (!played.length) return '<div class="hint" style="margin-top:6px">아직 입력된 게임 결과가 없습니다. 게임이 끝나면 대진표에서 점수를 입력하세요.</div>';
+  const hasDraw = played.some((r) => r.D > 0); // 무승부가 있으면 승-무-패로 표기
+  const wl = (r) => hasDraw ? `${r.W}-${r.D || 0}-${r.L}` : `${r.W}-${r.L}`;
   const body = played.map((r) => `<tr>
     <td>${medal(r.rank)}</td>
     <td style="text-align:left;font-weight:700">${esc(r.name)}</td>
     <td><b>${r.points}</b></td>
-    <td>${r.W}-${r.L}</td>
+    <td>${wl(r)}</td>
     <td>${r.GF}</td>
     <td>${r.GA}</td>
     <td>${r.GD > 0 ? '+' : ''}${r.GD}</td>
@@ -2444,7 +2450,7 @@ function rankTableHtml(rows, log) {
     <td class="gamelog">${gameLogCell(log && log[r.memberId])}</td>
   </tr>`).join('');
   return `<div class="table-scroll"><table class="detail-table rank-table">
-    <tr><th>순위</th><th style="text-align:left">이름</th><th>종합점수</th><th>승-패</th><th>득</th><th>실</th><th>득실차</th><th>경기</th><th style="text-align:left">경기별(득실)</th></tr>
+    <tr><th>순위</th><th style="text-align:left">이름</th><th>종합점수</th><th>${hasDraw ? '승-무-패' : '승-패'}</th><th>득</th><th>실</th><th>득실차</th><th>경기</th><th style="text-align:left">경기별(득실)</th></tr>
     ${body}
   </table></div>`;
 }
@@ -2833,7 +2839,7 @@ function renderRanking() {
       (Number(x.round) || 0) - (Number(y.round) || 0) || String(x.court || '').localeCompare(String(y.court || '')));
     for (const g of sorted) {
       const a = +g.scoreA, b = +g.scoreB;
-      if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) continue; // 미입력·동점 제외 (점수 반영 게임과 동일)
+      if (!Number.isFinite(a) || !Number.isFinite(b)) continue; // 미입력만 제외 (동점=무승부는 포함)
       const push = (mid, my, opp) => { if ((cnt[mid] || 0) >= singleCap) return; cnt[mid] = (cnt[mid] || 0) + 1; (logByMember[mid] || (logByMember[mid] = [])).push({ my, opp }); };
       (g.teamA || []).forEach((mid) => push(mid, a, b));
       (g.teamB || []).forEach((mid) => push(mid, b, a));
@@ -2849,13 +2855,14 @@ function renderRanking() {
         <span class="hint-inline">각 선수의 앞선 N게임까지만 순위에 반영</span></div>`
     : '';
   const fmtScore = (my, opp) => (my > 9 || opp > 9 ? `${my}-${opp}` : `${my}${opp}`);
-  const logCell = (mid) => (logByMember[mid] || []).map((x) => `<span class="${x.my > x.opp ? 'gwin' : 'glose'}">${fmtScore(x.my, x.opp)}</span>`).join(' ');
+  const logCell = (mid) => (logByMember[mid] || []).map((x) => `<span class="${x.my > x.opp ? 'gwin' : x.my < x.opp ? 'glose' : 'gdraw'}">${fmtScore(x.my, x.opp)}</span>`).join(' ');
+  const hasDraw = rows.some((r) => r.D > 0); // 무승부가 있으면 승-무-패로 표기
   const rankRows = rows
     .map((r) => `<tr>
       <td>${medal(r.rank)}</td>
       <td style="text-align:left;font-weight:700">${esc(r.name)}</td>
       <td><b>${r.points}</b></td>
-      <td>${r.W}-${r.L}</td>
+      <td>${hasDraw ? `${r.W}-${r.D || 0}-${r.L}` : `${r.W}-${r.L}`}</td>
       <td>${r.GF}</td>
       <td>${r.GA}</td>
       <td>${r.GD > 0 ? '+' : ''}${r.GD}</td>
@@ -2870,7 +2877,7 @@ function renderRanking() {
     : '';
   const eventRows = results
     .map((r) => {
-      const gc = (r.games || []).filter((g) => Number.isFinite(+g.scoreA) && Number.isFinite(+g.scoreB) && +g.scoreA !== +g.scoreB).length;
+      const gc = (r.games || []).filter((g) => Number.isFinite(+g.scoreA) && Number.isFinite(+g.scoreB)).length;
       return `<div class="evrow"><span>${esc(r.date || '')} · ${esc(r.title || '앵그리대회')} <span class="hint-inline">(${r.players ? r.players.length : 0}명 · ${gc}게임)</span></span>
         <button class="mini del" data-delresult="${r.id}" title="이 대회 결과 삭제">×</button></div>`;
     })
@@ -2885,7 +2892,7 @@ function renderRanking() {
         ? `<div class="hint-inline" style="display:block;margin:6px 0">${esc(scopeLabel)}</div>
            ${capControl}
            <div class="table-scroll"><table class="detail-table rank-table">
-             <tr><th>순위</th><th style="text-align:left">이름</th><th>종합점수</th><th>승-패</th><th>득</th><th>실</th><th>득실차</th><th>경기</th>${single ? '<th style="text-align:left">경기별(득실)</th>' : ''}</tr>
+             <tr><th>순위</th><th style="text-align:left">이름</th><th>종합점수</th><th>${hasDraw ? '승-무-패' : '승-패'}</th><th>득</th><th>실</th><th>득실차</th><th>경기</th>${single ? '<th style="text-align:left">경기별(득실)</th>' : ''}</tr>
              ${rankRows}
            </table></div>
            <div style="margin-top:10px"><b class="hint-inline">저장된 대회</b>${eventRows}
@@ -3760,7 +3767,7 @@ async function finalizeLiveEvent() {
   const memberOfAlias = (aliasId) => assign[aliasId];
   const games = [];
   const entryScores = {}; // 나중에 버전에서 열어 수정할 수 있도록 스냅샷에도 보관(동점 포함)
-  let total = 0, filled = 0, tie = 0;
+  let total = 0, filled = 0;
   res.rounds.forEach((rd, r) => rd.games.forEach((g, gi) => {
     total++;
     const sc = scores[gidOf(r, g.court)] || {};
@@ -3768,17 +3775,11 @@ async function finalizeLiveEvent() {
     if (a == null || b == null) return;
     filled++;
     entryScores[r + ':' + gi] = { a, b };
-    if (a === b) { tie++; return; } // 동점은 승패가 없어 랭킹 집계 제외 (전체 저장을 막지 않음)
+    // 동점(무승부)도 결과에 포함해 기록·집계한다
     games.push({ round: r, court: g.court, teamA: g.teams[0].map(memberOfAlias), teamB: g.teams[1].map(memberOfAlias), scoreA: a, scoreB: b });
   }));
-  if (!games.length) {
-    toast(tie > 0 ? '입력된 게임이 모두 동점이라 저장할 결과가 없습니다. 승패가 갈리도록 수정하세요.' : '입력된 게임 점수가 없습니다.');
-    return;
-  }
-  const warns = [];
-  if (filled < total) warns.push(`${filled}/${total} 게임만 입력됨`);
-  if (tie > 0) warns.push(`동점 ${tie}게임은 제외됨(승패 없음)`);
-  if (warns.length && !confirm(`${warns.join(' · ')}.\n승패가 있는 결과만 앵그리랭킹에 저장합니다.\n실시간 대회는 계속 열려 있어 나중에 다시 저장할 수 있습니다. 계속할까요?`)) return;
+  if (!games.length) { toast('입력된 게임 점수가 없습니다.'); return; }
+  if (filled < total && !confirm(`아직 ${filled}/${total} 게임만 입력됐습니다.\n입력된 결과까지만 앵그리랭킹에 저장합니다.\n실시간 대회는 계속 열려 있어 나중에 다시 저장할 수 있습니다. 계속할까요?`)) return;
   const players = [...new Set(Object.values(assign).filter(Boolean))].map((mid) => ({ memberId: mid, name: (memberOf(mid) || {}).name || mid }));
   const id = (entry && entry.resultId) || uid();
   const prev = resultStore.get(id);
@@ -3879,7 +3880,7 @@ function saveTournamentResult() {
   const assign = res.aliasAssign || {};
   const memberOfAlias = (aliasId) => assign[aliasId];
   const games = [];
-  let missing = 0, tie = 0;
+  let missing = 0;
   res.rounds.forEach((rd, r) => {
     rd.games.forEach((g, gi) => {
       const sc = state.scores[r + ':' + gi] || {};
@@ -3887,12 +3888,11 @@ function saveTournamentResult() {
       const teamA = g.teams[0].map(memberOfAlias);
       const teamB = g.teams[1].map(memberOfAlias);
       if (a == null || b == null) { missing++; return; }
-      if (a === b) { tie++; }
+      // 동점(무승부)도 결과에 포함
       games.push({ round: r, court: g.court, teamA, teamB, scoreA: a, scoreB: b });
     });
   });
   if (games.length === 0) { toast('입력된 게임 스코어가 없습니다.'); return; }
-  if (tie > 0) { toast(`동점 게임이 ${tie}개 있습니다. 승패가 갈리도록 수정하세요.`); return; }
   if (missing > 0 && !confirm(`스코어가 비어 있는 게임 ${missing}개는 제외하고 저장합니다. 계속할까요?`)) return;
 
   const players = [...new Set(Object.values(assign).filter(Boolean))].map((mid) => ({ memberId: mid, name: (memberOf(mid) || {}).name || mid }));
