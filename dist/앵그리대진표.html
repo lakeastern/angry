@@ -131,6 +131,11 @@
   .addrow input[type="text"] { flex: 1; min-width: 80px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem; }
   .gchk { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
   .mini2 { padding: 6px 10px; font-size: 0.85rem; white-space: nowrap; }
+  /* 결과 카드 헤더: 제목 + 버튼들 (되돌리기/다시실행은 오른쪽 정렬) */
+  .result-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .result-actions { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+  .undo-redo { margin-left: auto; display: inline-flex; gap: 8px; }
+  button.iconbtn { font-size: 1.5rem; line-height: 1; padding: 4px 12px; }
 
   /* 고급 설정 */
   .advgrid { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; align-items: center; margin-top: 10px; font-size: 0.92rem; }
@@ -209,7 +214,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-25 06:43</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-25 06:51</span></div>
 <div id="toast"></div>
 <script>
 'use strict';
@@ -3195,8 +3200,8 @@ function renderResult() {
     ? `<button class="ghost mini2" id="score-toggle">${state.scoreMode ? '결과 입력 닫기' : '📝 결과 입력'}</button>`
     : '';
   const imageBtn = '<button class="ghost mini2" id="result-image">📷 이미지 저장</button>';
-  // 스왑 되돌리기/다시 실행 — 아이콘만(심플). 이미지 저장 버튼 옆
-  const undoRedoBtns = `<button class="ghost mini2" id="undo" ${state.undoStack.length ? '' : 'disabled'} title="스왑 되돌리기 (Ctrl+Z)">↩</button><button class="ghost mini2" id="redo" ${state.redoStack.length ? '' : 'disabled'} title="되돌린 스왑 다시 실행 (Ctrl+Y)">↪</button>`;
+  // 스왑 되돌리기/다시 실행 — 이모지 아이콘(모바일에서도 크고 선명), 오른쪽 정렬
+  const undoRedoBtns = `<button class="ghost iconbtn" id="undo" ${state.undoStack.length ? '' : 'disabled'} title="스왑 되돌리기 (Ctrl+Z)" aria-label="되돌리기">↩️</button><button class="ghost iconbtn" id="redo" ${state.redoStack.length ? '' : 'disabled'} title="되돌린 스왑 다시 실행 (Ctrl+Y)" aria-label="다시 실행">↪️</button>`;
   // 실시간 대회(게임데이·앵그리대회): 시작 버튼 / 진행 중 표시
   const liveBtn = (!isReg && liveEnabled() && !res.liveId)
     ? '<button class="ghost mini2" id="live-start">🔴 실시간 대회 시작</button>'
@@ -3204,7 +3209,11 @@ function renderResult() {
 
   return `
   <section class="card">
-    <h2>${modeLabel} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span> <span class="no-print">${imageBtn} ${undoRedoBtns} ${toggleBtn} ${scoreBtn} ${liveBtn}</span></h2>
+    <h2 class="result-head">
+      <span>${modeLabel} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span></span>
+      <span class="no-print result-actions">${imageBtn} ${toggleBtn} ${scoreBtn} ${liveBtn}</span>
+      <span class="no-print undo-redo">${undoRedoBtns}</span>
+    </h2>
     <div class="result-cols">
       <div class="bracket-col">
         <div class="bracket-scroll"><table class="bracket">

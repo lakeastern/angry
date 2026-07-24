@@ -131,6 +131,11 @@
   .addrow input[type="text"] { flex: 1; min-width: 80px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem; }
   .gchk { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
   .mini2 { padding: 6px 10px; font-size: 0.85rem; white-space: nowrap; }
+  /* 결과 카드 헤더: 제목 + 버튼들 (되돌리기/다시실행은 오른쪽 정렬) */
+  .result-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .result-actions { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+  .undo-redo { margin-left: auto; display: inline-flex; gap: 8px; }
+  button.iconbtn { font-size: 1.5rem; line-height: 1; padding: 4px 12px; }
 
   /* 고급 설정 */
   .advgrid { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; align-items: center; margin-top: 10px; font-size: 0.92rem; }
@@ -209,7 +214,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-25 06:43</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-25 06:51</span></div>
 <div id="toast"></div>
 <script type="module" src="./app.js"></script>
 </body>
