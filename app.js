@@ -3,7 +3,7 @@ import { generateSchedule, validateSchedule, SchedulerError } from './engine/sch
 import { buildPlan } from './engine/planner.js';
 import { pairKey } from './engine/validate.js';
 import { computeRanking } from './engine/ranking.js';
-import { liveConfigure, liveEnabled, liveCreate, liveGetEvent, liveSetScore, liveSubscribeScores, liveFetchScores, liveDelete } from './live.js';
+import { liveConfigure, liveEnabled, liveCreate, liveGetEvent, liveSetScore, liveSubscribeScores, liveSubscribeEvent, liveFetchScores, liveDelete } from './live.js';
 
 // Firebase 실시간 대회 설정 (공개 식별자 — 보안은 Firestore 규칙으로. 비밀 아님)
 const FIREBASE_CONFIG = {
@@ -432,8 +432,14 @@ async function openLiveEvent(id) {
     render();
     state.live.unsub = await liveSubscribeScores(id, (scores) => {
       if (!state.live || state.live.id !== id) return;
+      if (state.live.ended) return; // 종료된 뒤엔 빈 스냅샷으로 화면을 지우지 않는다
       state.live.scores = scores;
       applyLiveUpdate();
+    });
+    // 관리자가 "대회 종료"로 이벤트를 삭제하면 감지해 안내
+    state.live.eventUnsub = await liveSubscribeEvent(id, (exists) => {
+      if (!state.live || state.live.id !== id) return;
+      if (!exists && !state.live.ended) { state.live.ended = true; render(); }
     });
   } catch (e) {
     state.live.error = '실시간 서버에 연결할 수 없습니다. 인터넷 연결을 확인하고 새로고침하세요.';
@@ -508,6 +514,7 @@ function renderLiveViewer() {
   }
   if (!L.event) return '<section class="card"><p>대회를 불러오는 중…</p></section>';
   const b = L.event.bracket;
+  const ended = !!L.ended;
   const isTour = b.mode === 'tournament';
   const hasAssign = isTour && b.aliasReal && Object.keys(b.aliasReal).length > 0;
   const nameV = (id) => viewerName(b, id);
@@ -519,10 +526,12 @@ function renderLiveViewer() {
     const cells = rd.games.map((g) => {
       const gid = gidOf(r, g.court);
       const sc = L.scores[gid] || {};
+      // 종료된 대회는 점수 입력칸을 숨긴다 (입력 불가)
+      const scoreCell = ended ? '' : `<div class="scorein"><input type="number" min="0" max="99" inputmode="numeric" data-ls="${gid}:a" value="${sc.a == null ? '' : sc.a}"><span>:</span><input type="number" min="0" max="99" inputmode="numeric" data-ls="${gid}:b" value="${sc.b == null ? '' : sc.b}"></div>`;
       return `<td class="gamecell">
         <div class="tline">${g.teams[0].map(tokV).join('')}</div>
         <div class="tline"><span class="vs">vs</span>${g.teams[1].map(tokV).join('')}</div>
-        <div class="scorein"><input type="number" min="0" max="99" inputmode="numeric" data-ls="${gid}:a" value="${sc.a == null ? '' : sc.a}"><span>:</span><input type="number" min="0" max="99" inputmode="numeric" data-ls="${gid}:b" value="${sc.b == null ? '' : sc.b}"></div>
+        ${scoreCell}
       </td>`;
     }).join('') + '<td class="emptycourt">—</td>'.repeat(maxCourts - rd.games.length);
     const lesson = rd.lesson.map(tokV).join('') + (rd.excluded || []).map(tokV).join('') || '<span class="lessonlabel">—</span>';
@@ -532,7 +541,9 @@ function renderLiveViewer() {
   return `
   <section class="card">
     <h1 class="vtitle">🔴 실시간 대회 — ${title}</h1>
-    <div class="hint" style="margin-bottom:8px">게임이 끝나면 아래 대진표의 해당 게임 칸에 점수를 입력하세요. 모두의 화면에서 순위가 실시간으로 갱신됩니다.</div>
+    ${ended
+      ? '<div class="banner info">이 실시간 대회는 <b>종료</b>되었습니다. 더 이상 점수를 입력할 수 없습니다. (최종 순위는 경기이사에게 문의하세요)</div>'
+      : '<div class="hint" style="margin-bottom:8px">게임이 끝나면 아래 대진표의 해당 게임 칸에 점수를 입력하세요. 모두의 화면에서 순위가 실시간으로 갱신됩니다.</div>'}
     <div class="bracket-scroll" style="text-align:center"><div style="display:inline-block">
       <table class="bracket">
         <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
@@ -1719,11 +1730,16 @@ async function startLiveEvent() {
   const res = state.result;
   const entry = state.history[state.currentIdx];
   if (!res || res.fatal || !entry) { toast('먼저 대진표를 생성하세요.'); return; }
+  if (res.liveId) { toast('이미 실시간 대회가 진행 중입니다.'); return; } // 중복 시작 방지
   const names = {};
   entry.config.players.forEach((p) => (names[p.id] = [p.name, p.gender]));
   const mode = entry.mode || (entry.config.type === 'regular' ? 'regular' : 'monthly');
   const bracket = { type: entry.config.type, rounds: res.rounds, names, mode };
   if (mode === 'tournament') {
+    // 미배정(제비뽑기 전)으로 시작하면 링크에 실명이 아닌 별칭으로 고정 표시됨 → 경고
+    const assignedCount = Object.values(entry.aliasAssign || {}).filter(Boolean).length;
+    if (assignedCount < res.plan.byId.size &&
+        !confirm('아직 제비뽑기(별칭 배정)를 완료하지 않았습니다.\n지금 시작하면 링크에 실제 이름 대신 별칭(남1·여1…)으로 표시되고, 이후 배정을 바꿔도 이미 연 링크에는 반영되지 않습니다.\n배정을 마친 뒤 시작하는 것을 권장합니다. 그래도 시작할까요?')) return;
     const aliasReal = {};
     Object.entries(entry.aliasAssign || {}).forEach(([alias, mid]) => { const m = memberOf(mid); if (m) aliasReal[alias] = m.name; });
     bracket.aliasReal = aliasReal;
@@ -1761,28 +1777,33 @@ async function finalizeLiveEvent() {
   catch (e) { toast('실시간 점수를 불러오지 못했습니다. 인터넷 연결을 확인하세요.'); return; }
   const memberOfAlias = (aliasId) => assign[aliasId];
   const games = [];
-  const entryScores = {}; // 나중에 버전에서 열어 수정할 수 있도록 스냅샷에도 보관
-  let total = 0, entered = 0, tie = 0;
+  const entryScores = {}; // 나중에 버전에서 열어 수정할 수 있도록 스냅샷에도 보관(동점 포함)
+  let total = 0, filled = 0, tie = 0;
   res.rounds.forEach((rd, r) => rd.games.forEach((g, gi) => {
     total++;
     const sc = scores[gidOf(r, g.court)] || {};
     const a = sc.a, b = sc.b;
     if (a == null || b == null) return;
-    entered++;
+    filled++;
     entryScores[r + ':' + gi] = { a, b };
-    if (a === b) { tie++; return; }
+    if (a === b) { tie++; return; } // 동점은 승패가 없어 랭킹 집계 제외 (전체 저장을 막지 않음)
     games.push({ round: r, court: g.court, teamA: g.teams[0].map(memberOfAlias), teamB: g.teams[1].map(memberOfAlias), scoreA: a, scoreB: b });
   }));
-  if (!entered) { toast('입력된 게임 점수가 없습니다.'); return; }
-  if (tie > 0) { toast(`동점 게임이 ${tie}개 있습니다. 승패가 갈리도록 수정 후 저장하세요.`); return; }
-  if (entered < total && !confirm(`아직 ${entered}/${total} 게임만 입력됐습니다.\n입력된 결과까지만 앵그리랭킹에 저장합니다.\n실시간 대회는 계속 열려 있어 나중에 다시 저장할 수 있습니다. 계속할까요?`)) return;
+  if (!games.length) {
+    toast(tie > 0 ? '입력된 게임이 모두 동점이라 저장할 결과가 없습니다. 승패가 갈리도록 수정하세요.' : '입력된 게임 점수가 없습니다.');
+    return;
+  }
+  const warns = [];
+  if (filled < total) warns.push(`${filled}/${total} 게임만 입력됨`);
+  if (tie > 0) warns.push(`동점 ${tie}게임은 제외됨(승패 없음)`);
+  if (warns.length && !confirm(`${warns.join(' · ')}.\n승패가 있는 결과만 앵그리랭킹에 저장합니다.\n실시간 대회는 계속 열려 있어 나중에 다시 저장할 수 있습니다. 계속할까요?`)) return;
   const players = [...new Set(Object.values(assign).filter(Boolean))].map((mid) => ({ memberId: mid, name: (memberOf(mid) || {}).name || mid }));
   const id = (entry && entry.resultId) || uid();
   resultStore.add({ id, date: new Date().toLocaleDateString('ko-KR'), mode: 'tournament', title: '앵그리대회', players, games });
   if (entry) { entry.resultId = id; entry.scores = entryScores; }
   persistAll();
   state.ui.ranking = true;
-  toast(`결과를 앵그리랭킹에 저장했습니다${entered < total ? ` (현재 ${entered}/${total}게임)` : ''}. 실시간 대회는 계속 진행 중입니다 — 끝났으면 "대회 종료"를 누르세요.`);
+  toast(`결과를 앵그리랭킹에 저장했습니다${games.length < total ? ` (${games.length}게임 반영)` : ''}. 실시간 대회는 계속 진행 중입니다 — 끝났으면 "대회 종료"를 누르세요.`);
   render();
 }
 

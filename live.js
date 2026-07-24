@@ -90,6 +90,12 @@ export async function liveSubscribeScores(id, cb) {
   }, (err) => { console.warn('live 구독 오류', err); });
 }
 
+// 이벤트 문서 존재 여부 구독 → cb(exists). 관리자가 "대회 종료"로 삭제하면 exists=false.
+export async function liveSubscribeEvent(id, cb) {
+  const { db, fs } = await fb();
+  return fs.onSnapshot(fs.doc(db, 'events', id), (snap) => cb(snap.exists()), () => {});
+}
+
 // 이벤트 문서(+게임 하위문서) 삭제 — 관리자 확정/정리
 export async function liveDelete(id) {
   const { db, fs } = await fb();
