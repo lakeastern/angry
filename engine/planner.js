@@ -18,6 +18,7 @@ export const DEFAULT_OPTIONS = {
   allowPartnerRepeat: false, // 파트너 중복 허용 (설정에 의한 강제 완화)
   ignoreGender: false, // 성별 구분 없이 편성 (잡복 허용)
   strictGameCount: true, // 게임데이·앵그리대회: 인당 게임 수를 맞추기 위해 덜 중요한 제약부터 자동 완화(마지막 잡복)
+  courts: null, // 게임데이·앵그리대회 코트 수 (null=자동 1~3, 또는 1~4 수동 지정)
 };
 
 // 입력 형식: { id, name, gender:'M'|'W', score(성별 내 실력 순위, 1=최강),
@@ -127,7 +128,18 @@ export function buildPlan(config) {
   } else {
     gamesPerPerson = Number(config.gamesPerPerson) || 4;
     if (gamesPerPerson < 1 || gamesPerPerson > 10) throw new SchedulerError('인당 게임 수는 1~10 사이여야 합니다.');
-    const baseCourts = N >= 12 ? 3 : N >= 8 ? 2 : 1;
+    // 코트 수: 기본은 인원에 맞춰 자동(1~3), 설정 시 1~4 수동. 단 한 라운드에 채울 수 있는
+    // 최대(=floor(N/4))를 넘을 수 없다(넘으면 코트를 못 채워 대진이 꼬임).
+    const autoCourts = N >= 12 ? 3 : N >= 8 ? 2 : 1;
+    const maxFill = Math.max(1, Math.floor(N / 4));
+    const wantCourts = options.courts && +options.courts >= 1 ? Math.min(4, Math.floor(+options.courts)) : null;
+    const baseCourts = Math.min(wantCourts || autoCourts, maxFill);
+    if (wantCourts && baseCourts < wantCourts) {
+      planWarnings.push({
+        code: 'W_COURT_CLAMPED',
+        message: `요청한 ${wantCourts}코트는 인원(${N}명)상 한 라운드를 다 채울 수 없어 ${baseCourts}코트로 운영합니다 (코트당 4명 필요).`,
+      });
+    }
     const raw = N * gamesPerPerson;
     let T;
     if (raw % 4 === 0) {

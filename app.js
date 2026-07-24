@@ -49,6 +49,7 @@ const state = {
     allowPartnerRepeat: false,
     ignoreGender: false,
     strictGameCount: true, // 게임데이·앵그리대회: 인당 게임 수 우선 (필요 시 잡복까지 최소 허용)
+    courts: null, // 게임데이·앵그리대회 코트 수 (null=자동 1~3, 1~4 수동)
   },
   attend: { selectedIds: [], excludeOverrides: {} },
   history: [], // [{ts, seed, config, rounds, summary}] 최신이 앞
@@ -397,7 +398,7 @@ function renderViewer() {
   const tokV = (id) => `<span class="tok" style="cursor:default">${esc(nameV(id))}</span>`;
   const isReg = b.type === 'regular';
   const maxCourts = Math.max(...b.rounds.map((rd) => rd.games.length));
-  const courtHeads = Array.from({ length: maxCourts }, (_, i) => `<th>${'abc'[i]}코트</th>`).join('');
+  const courtHeads = Array.from({ length: maxCourts }, (_, i) => `<th>${'abcd'[i]}코트</th>`).join('');
   const rows = b.rounds
     .map((rd, r) => {
       const cells = rd.games
@@ -542,7 +543,7 @@ function renderLiveViewer() {
   const tokV = (id) => `<span class="tok" style="cursor:default">${esc(nameV(id))}</span>`;
   const isReg = b.type === 'regular';
   const maxCourts = Math.max(...b.rounds.map((rd) => rd.games.length));
-  const courtHeads = Array.from({ length: maxCourts }, (_, i) => `<th>${'abc'[i]}코트</th>`).join('');
+  const courtHeads = Array.from({ length: maxCourts }, (_, i) => `<th>${'abcd'[i]}코트</th>`).join('');
   const rows = b.rounds.map((rd, r) => {
     const cells = rd.games.map((g) => {
       const gid = gidOf(r, g.court);
@@ -1013,6 +1014,11 @@ function renderSettings() {
         <label>같은 상대 상한 <select id="opt-maxmeet">${meetOpts}</select></label>
         <span class="hint">같은 상대와 만나는 횟수를 이 값 이하로 제한 (기본 2번)</span>
         ${!isReg ? `
+        <label>코트 수 <select id="opt-courts">
+          <option value="" ${!s.courts ? 'selected' : ''}>자동 (인원 맞춤 1~3)</option>
+          ${[1, 2, 3, 4].map((n) => `<option value="${n}" ${+s.courts === n ? 'selected' : ''}>${n}코트</option>`).join('')}
+        </select></label>
+        <span class="hint">기본은 인원에 맞춰 자동(12명↑ 3코트). 코트 사정에 따라 1~4코트로 직접 지정할 수 있습니다(4코트는 16명↑). 인원상 한 라운드를 못 채우면 자동 축소</span>
         <label>인당 최소 혼복 게임 수 <select id="opt-minmixed">${minMixedOpts}</select></label>
         <span class="hint">모든 참가자가 최소 이 횟수만큼 혼복을 하도록 배정 (기본 1회, '없음'이면 미적용)</span>
         <label><input type="checkbox" id="opt-strict" ${s.strictGameCount !== false ? 'checked' : ''}> 인당 게임 수 우선</label>
@@ -1216,7 +1222,7 @@ function renderResult() {
     .join('');
 
   const maxCourts = Math.max(...res.rounds.map((rd) => rd.games.length));
-  const courtHeads = Array.from({ length: maxCourts }, (_, i) => `<th>${'abc'[i]}코트</th>`).join('');
+  const courtHeads = Array.from({ length: maxCourts }, (_, i) => `<th>${'abcd'[i]}코트</th>`).join('');
 
   // 잡복이 하나라도 있으면 혼복 칸을 "혼복+잡복 합계(그중 잡복)"로 표시한다 (예: 혼복1·잡복1 → 2(1)).
   const hasJapbok = (res.stats.japbokGames || 0) > 0;
@@ -1571,6 +1577,8 @@ function bindSettings() {
   if (mm) mm.addEventListener('change', () => { state.settings.maxMeet = mm.value === '' ? null : +mm.value; persistAll(); });
   const minmx = $('#opt-minmixed');
   if (minmx) minmx.addEventListener('change', () => { state.settings.minMixedGames = +minmx.value; persistAll(); });
+  const courts = $('#opt-courts');
+  if (courts) courts.addEventListener('change', () => { state.settings.courts = courts.value === '' ? null : +courts.value; persistAll(); });
   const roundListToggle = (attr, key) =>
     document.querySelectorAll(`[data-${attr}]`).forEach((el) =>
       el.addEventListener('click', () => {
@@ -2014,6 +2022,7 @@ function buildConfig(seed) {
         allowPartnerRepeat: s.allowPartnerRepeat,
         ignoreGender: s.ignoreGender,
         strictGameCount: s.strictGameCount !== false,
+        courts: s.courts || null,
       },
       seed,
     };
@@ -2050,6 +2059,7 @@ function buildConfig(seed) {
       allowPartnerRepeat: s.allowPartnerRepeat,
       ignoreGender: s.ignoreGender,
       strictGameCount: s.strictGameCount !== false,
+      courts: s.meetingType === 'regular' ? null : (s.courts || null),
     },
     seed,
   };

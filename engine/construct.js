@@ -101,7 +101,7 @@ export function constructSchedule(plan, rng, opts = {}) {
 
     // 커밋 — 게임 순서가 항상 남복→여복→혼복이라 남복이 a코트에 고정되는 것을 막기 위해
     // 라운드 인덱스만큼 회전시켜 코트 배정을 순환시킨다
-    const courtLetters = ['a', 'b', 'c'];
+    const courtLetters = ['a', 'b', 'c', 'd'];
     const rot = built.games.length > 1 ? r % built.games.length : 0;
     const orderedGames = [...built.games.slice(rot), ...built.games.slice(0, rot)];
     const roundGames = orderedGames.map((g, i) => ({
