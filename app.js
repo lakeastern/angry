@@ -578,10 +578,10 @@ function renderLiveViewer() {
         ${rows}
       </table>
     </div></div>
-    <div class="row no-print" style="margin-top:8px">
-      <button class="ghost mini2" id="lv-home">${window.opener ? '✕ 관리자 화면으로 (이 창 닫기)' : '← 앵그리 앱으로'}</button>
+    ${(window.opener || (isTour && hasAssign)) ? `<div class="row no-print" style="margin-top:8px">
+      ${window.opener ? '<button class="ghost mini2" id="lv-home">✕ 관리자 화면으로 (이 창 닫기)</button>' : ''}
       ${isTour && hasAssign ? `<button class="ghost mini2" id="lv-nametoggle">${state.showRealNames ? '별칭 보기' : '실명 보기'}</button>` : ''}
-    </div>
+    </div>` : ''}
   </section>
   <section class="card">
     <h2>🏆 실시간 순위 <span class="hint-inline">— 승수 우선 · 득실차 순</span></h2>
