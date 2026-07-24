@@ -4,8 +4,8 @@
 //   { id, date, mode, players: [{ memberId, name }],
 //     games: [{ round, court, teamA:[memberId,memberId], teamB:[...], scoreA, scoreB }] }
 //
-// 멤버별 누적 후 랭킹 정렬(사전식): 승수 W desc → 득실차 GD desc → 득점 GF desc → 승률 desc → 이름
-// (승이 많은 사람은 득실차와 무관하게 항상 상위). 동점(무승부)은 승/패가 아니지만 경기·득실에는 포함.
+// 멤버별 누적 후 랭킹 정렬(사전식): 승수 W desc → 패 L asc(적을수록 위) → 득실차 GD desc → 득점 GF desc → 승률 desc → 이름
+// (승이 많은 사람은 항상 상위; 같은 승수면 패가 적은=무가 많은 사람이 득실차와 무관하게 위). 동점(무승부)은 경기·득실에 포함.
 
 export function computeRanking(results) {
   const stat = new Map(); // memberId → { memberId, name, G, W, D, L, GF, GA }
@@ -55,6 +55,7 @@ export function computeRanking(results) {
 
   rows.sort((x, y) =>
     y.W - x.W || // 승수 절대 우선
+    x.L - y.L || // 같은 승수면 패가 적은 쪽(무가 많은 쪽)이 위 — 득실차보다 우선
     y.GD - x.GD || // 득실차
     y.GF - x.GF || // 같은 득실차면 득점 많은 쪽
     y.winRate - x.winRate || // 승률
@@ -63,7 +64,7 @@ export function computeRanking(results) {
 
   let rank = 0, prevKey = null;
   rows.forEach((r, i) => {
-    const key = r.W + '/' + r.GD + '/' + r.GF + '/' + r.winRate.toFixed(4);
+    const key = r.W + '/' + r.L + '/' + r.GD + '/' + r.GF + '/' + r.winRate.toFixed(4);
     if (key !== prevKey) { rank = i + 1; prevKey = key; } // 동률은 같은 순위
     r.rank = rank;
   });

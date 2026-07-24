@@ -70,6 +70,30 @@ test('미입력은 제외, 동점(무승부)은 경기·득실에 포함', () =>
   assert.equal(A.points, 3, '종합점수는 승×3 (무승부는 미반영)');
 });
 
+test('같은 승수면 패가 적은(무가 많은) 사람이 득실차와 무관하게 위', () => {
+  // A: 3승1무0패 이지만 득실차 작음. B: 3승0무1패 이지만 득실차 큼. → A가 위여야
+  const ppl = ['A', 'B', 'p', 'q', 'r', 's'].map((id) => ({ memberId: id, name: id }));
+  const games = [
+    // A의 3승(빠듯하게) + 1무
+    { round: 0, court: 'a', teamA: ['A', 'p'], teamB: ['q', 'r'], scoreA: 6, scoreB: 5 },
+    { round: 1, court: 'a', teamA: ['A', 'p'], teamB: ['q', 'r'], scoreA: 6, scoreB: 5 },
+    { round: 2, court: 'a', teamA: ['A', 'p'], teamB: ['q', 'r'], scoreA: 6, scoreB: 5 },
+    { round: 3, court: 'a', teamA: ['A', 'p'], teamB: ['q', 'r'], scoreA: 5, scoreB: 5 }, // 무
+    // B의 3승(크게) + 1패(크게) → 득실차 A보다 큼
+    { round: 0, court: 'b', teamA: ['B', 's'], teamB: ['q', 'r'], scoreA: 6, scoreB: 0 },
+    { round: 1, court: 'b', teamA: ['B', 's'], teamB: ['q', 'r'], scoreA: 6, scoreB: 0 },
+    { round: 2, court: 'b', teamA: ['B', 's'], teamB: ['q', 'r'], scoreA: 6, scoreB: 0 },
+    { round: 3, court: 'b', teamA: ['B', 's'], teamB: ['q', 'r'], scoreA: 0, scoreB: 6 }, // 패
+  ];
+  const rows = computeRanking([{ id: 'r1', players: ppl, games }]);
+  const A = rows.find((r) => r.memberId === 'A');
+  const B = rows.find((r) => r.memberId === 'B');
+  assert.equal(A.W, 3); assert.equal(A.L, 0); assert.equal(A.D, 1);
+  assert.equal(B.W, 3); assert.equal(B.L, 1); assert.equal(B.D, 0);
+  assert.ok(A.GD < B.GD, '전제: A 득실차가 B보다 작음');
+  assert.ok(A.rank < B.rank, '3승0패(1무)가 3승1패보다 위 — 득실차 작아도');
+});
+
 test('무승부는 승/패보다 순위 중립 — 득실차로 패보다 위', () => {
   const players = ['A', 'B', 'C', 'D', 'E', 'F', 'p', 'q'].map((id) => ({ memberId: id, name: id }));
   // A: 1무 (GD 0), C: 1패 (GD -3) → 둘 다 0승이지만 A가 위
