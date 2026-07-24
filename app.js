@@ -330,6 +330,11 @@ function estimatedRounds() {
   return Math.ceil(T / courts);
 }
 
+// 대진표 생성 시각 라벨 (예: 7/25 17:25)
+function fmtStamp(d = new Date()) {
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 function effectiveExclude(id) {
   if (state.attend.excludeOverrides[id]) return state.attend.excludeOverrides[id];
   const m = memberOf(id);
@@ -1087,7 +1092,7 @@ function renderAttendance() {
 
 function renderActions() {
   const versions = state.history
-    .map((h, i) => `<span class="vchip ${i === state.currentIdx ? 'on' : ''}" data-ver="${i}" title="점수차 평균 ${h.summary.avgDiff} · 재대면 최대 ${h.summary.maxMeet}">V${state.history.length - i} · ${h.ts}${h.edited ? ' ✏' : ''}</span>`)
+    .map((h, i) => `<span class="vchip ${i === state.currentIdx ? 'on' : ''}" data-ver="${i}" title="${h.ts || ''} · 점수차 평균 ${h.summary.avgDiff} · 재대면 최대 ${h.summary.maxMeet}">V${state.history.length - i}${h.edited ? ' ✏' : ''}</span>`)
     .join('');
   return `
   <section class="card no-print">
@@ -1233,6 +1238,8 @@ function renderResult() {
     .join('');
 
   const verLabel = state.currentIdx >= 0 ? `V${state.history.length - state.currentIdx}` : '';
+  const curEntry = state.currentIdx >= 0 ? state.history[state.currentIdx] : null;
+  const headMeta = [(curEntry && curEntry.ts) || '', res.edited ? '수동 수정됨' : ''].filter(Boolean).join(' · ');
 
   // 범례: 실제 표시된 아이콘 뱃지만 설명
   const ICON_DESC = {
@@ -1263,7 +1270,7 @@ function renderResult() {
   return `
   <section class="card">
     <h2 class="result-head">
-      <span>${modeLabel} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span></span>
+      <span>${modeLabel} 대진표 ${verLabel}${headMeta ? ` <span class="hint-inline">(${headMeta})</span>` : ''}</span>
       <span class="no-print result-actions">${imageBtn} ${toggleBtn} ${scoreBtn} ${liveBtn}</span>
       <span class="no-print undo-redo">${undoRedoBtns}</span>
     </h2>
@@ -2082,7 +2089,7 @@ function generate() {
     state.scoreMode = false;
     state.scores = {};
     const entry = {
-      ts: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+      ts: fmtStamp(),
       seed: res.seed,
       // 완화(성별 무시 등)가 반영된 유효 옵션으로 저장 — 복원 시 같은 plan을 재구성할 수 있게 한다
       config: { ...config, options: { ...res.plan.options } },

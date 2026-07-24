@@ -151,10 +151,12 @@
   .advgrid select { padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; }
 
   /* 버전 히스토리 */
-  .vrow { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  /* 버전·필터 칩: 개수가 많아도 한 줄로 두고 가로 스크롤 */
+  .vrow { margin-top: 10px; display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+  .vrow > * { flex: 0 0 auto; }
   .vchip {
     border: 1.5px solid var(--border); border-radius: 999px; padding: 3px 11px;
-    font-size: 0.82rem; cursor: pointer; background: #fff; user-select: none;
+    font-size: 0.82rem; cursor: pointer; background: #fff; user-select: none; white-space: nowrap;
   }
   .vchip.on { border-color: var(--accent); background: #ecfdf5; color: #166534; font-weight: 700; }
 
@@ -214,7 +216,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-25 06:51</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-25 07:03</span></div>
 <div id="toast"></div>
 <script type="module" src="./app.js"></script>
 </body>
