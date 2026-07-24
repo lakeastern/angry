@@ -334,6 +334,21 @@ function effectiveExclude(id) {
   return m && m.presetExclude ? m.presetExclude : [];
 }
 
+// 진행 중인 실시간 대회가 걸린 버전의 인덱스 (없으면 -1)
+function activeLiveIndex() {
+  return state.history.findIndex((h) => h && h.liveId);
+}
+
+// 다른 화면(새 대진표 등)에 있을 때, 진행 중 실시간 대회로 돌아가는 배너
+function renderActiveLiveBanner() {
+  const li = activeLiveIndex();
+  if (li < 0) return '';
+  if (state.result && state.result.liveId) return ''; // 이미 그 대회 화면을 보고 있음
+  const e = state.history[li];
+  const label = `${e.mode === 'tournament' ? '앵그리대회' : e.mode === 'monthly' ? '게임데이' : '대회'}${e.ts ? ` · ${esc(e.ts)}` : ''}`;
+  return `<div class="banner info live-return no-print">🔴 실시간 대회 진행 중 <span class="hint-inline">(${label})</span> <button class="ghost mini2" id="goto-live">진행 화면으로 돌아가기</button></div>`;
+}
+
 // ─── 렌더링 ───
 function render() {
   if (state.viewerMode === 'live') {
@@ -348,6 +363,7 @@ function render() {
   }
   $('#app').innerHTML = `
     <h1>🎾 앵그리 테니스 클럽 대진표</h1>
+    ${renderActiveLiveBanner()}
     ${renderRoster()}
     ${renderRanking()}
     ${renderSettings()}
@@ -1328,6 +1344,8 @@ function bindAll() {
   bindAttendance();
   bindActions();
   bindResult();
+  const gotoLive = $('#goto-live');
+  if (gotoLive) gotoLive.addEventListener('click', () => { const li = activeLiveIndex(); if (li >= 0) viewVersion(li); });
 }
 
 function bindRanking() {
@@ -2010,6 +2028,9 @@ function buildConfig(seed) {
 }
 
 function generate() {
+  // 실시간 대회 진행 중이면 새 대진표 생성이 진행 화면에서 벗어남을 알린다 (대회는 계속 유지)
+  if (activeLiveIndex() >= 0 &&
+      !confirm('실시간 대회가 진행 중입니다.\n새 대진표를 만들어도 진행 중인 대회는 계속되며, 상단 "🔴 실시간 대회 진행 중" 배너로 다시 돌아갈 수 있습니다.\n계속 만들까요?')) return;
   const config = buildConfig(Math.floor(Math.random() * 1e9));
   state.swapSel = null;
   state.undoStack = [];
