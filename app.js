@@ -440,22 +440,32 @@ async function openLiveEvent(id) {
   }
 }
 
-// 대진(rounds) + 스코어 + 이름함수 → 랭킹 행 (뷰어·관리자 공용 순수 계산)
-function rankingRowsFrom(rounds, scores, nameOf) {
+// 게임 스코어 표기 (한 자리는 붙여서 60, 두 자리 이상은 6-10)
+function fmtGameScore(my, opp) { return (my > 9 || opp > 9) ? `${my}-${opp}` : `${my}${opp}`; }
+function gameLogCell(arr) { return (arr || []).map((x) => `<span class="${x.my > x.opp ? 'gwin' : 'glose'}">${fmtGameScore(x.my, x.opp)}</span>`).join(' '); }
+
+// 대진(rounds) + 스코어 + 이름함수 → { rows(랭킹), log(선수별 경기 스코어) } (뷰어·관리자 공용)
+function rankingDataFrom(rounds, scores, nameOf) {
   const ids = new Set();
   const games = [];
+  const log = {};
   rounds.forEach((rd, r) => rd.games.forEach((g) => {
     (g.teams[0] || []).forEach((id) => ids.add(id));
     (g.teams[1] || []).forEach((id) => ids.add(id));
     const sc = scores[gidOf(r, g.court)] || {};
     games.push({ teamA: g.teams[0], teamB: g.teams[1], scoreA: sc.a, scoreB: sc.b });
+    const a = sc.a, b = sc.b;
+    if (a != null && b != null) {
+      (g.teams[0] || []).forEach((id) => (log[id] || (log[id] = [])).push({ my: a, opp: b }));
+      (g.teams[1] || []).forEach((id) => (log[id] || (log[id] = [])).push({ my: b, opp: a }));
+    }
   }));
   const players = [...ids].map((id) => ({ memberId: id, name: nameOf(id) }));
-  return computeRanking([{ players, games }]);
+  return { rows: computeRanking([{ players, games }]), log };
 }
 
-// 랭킹 행 → 표 HTML (뷰어·관리자 공용)
-function rankTableHtml(rows) {
+// 랭킹 표 HTML — 개별 대회 순위표와 동일 컬럼(순위·이름·종합점수·승-패·득·실·득실차·경기·경기별)
+function rankTableHtml(rows, log) {
   const medal = (rk) => (rk === 1 ? '🥇' : rk === 2 ? '🥈' : rk === 3 ? '🥉' : rk);
   const played = rows.filter((r) => r.G > 0);
   if (!played.length) return '<div class="hint" style="margin-top:6px">아직 입력된 게임 결과가 없습니다. 게임이 끝나면 대진표에서 점수를 입력하세요.</div>';
@@ -464,25 +474,28 @@ function rankTableHtml(rows) {
     <td style="text-align:left;font-weight:700">${esc(r.name)}</td>
     <td><b>${r.points}</b></td>
     <td>${r.W}-${r.L}</td>
+    <td>${r.GF}</td>
+    <td>${r.GA}</td>
     <td>${r.GD > 0 ? '+' : ''}${r.GD}</td>
     <td>${r.G}</td>
+    <td class="gamelog">${gameLogCell(log && log[r.memberId])}</td>
   </tr>`).join('');
   return `<div class="table-scroll"><table class="detail-table rank-table">
-    <tr><th>순위</th><th style="text-align:left">이름</th><th>종합점수</th><th>승-패</th><th>득실차</th><th>경기</th></tr>
+    <tr><th>순위</th><th style="text-align:left">이름</th><th>종합점수</th><th>승-패</th><th>득</th><th>실</th><th>득실차</th><th>경기</th><th style="text-align:left">경기별(득실)</th></tr>
     ${body}
   </table></div>`;
 }
 
-function liveRankingRows() {
+function liveRankingData() {
   const ev = state.live && state.live.event;
-  if (!ev) return [];
+  if (!ev) return { rows: [], log: {} };
   const b = ev.bracket;
   const nameOf = (id) => (b.mode === 'tournament' && b.aliasReal && b.aliasReal[id]) ? b.aliasReal[id]
     : (b.names[id] ? b.names[id][0] : id);
-  return rankingRowsFrom(b.rounds, state.live.scores, nameOf);
+  return rankingDataFrom(b.rounds, state.live.scores, nameOf);
 }
 
-function renderLiveRankingTable() { return rankTableHtml(liveRankingRows()); }
+function renderLiveRankingTable() { const d = liveRankingData(); return rankTableHtml(d.rows, d.log); }
 
 function renderLiveViewer() {
   const L = state.live;
@@ -525,7 +538,10 @@ function renderLiveViewer() {
         ${rows}
       </table>
     </div></div>
-    ${isTour && hasAssign ? `<div class="row no-print" style="margin-top:8px"><button class="ghost mini2" id="lv-nametoggle">${state.showRealNames ? '별칭 보기' : '실명 보기'}</button></div>` : ''}
+    <div class="row no-print" style="margin-top:8px">
+      <button class="ghost mini2" id="lv-home">← 앵그리 앱으로</button>
+      ${isTour && hasAssign ? `<button class="ghost mini2" id="lv-nametoggle">${state.showRealNames ? '별칭 보기' : '실명 보기'}</button>` : ''}
+    </div>
   </section>
   <section class="card">
     <h2>🏆 실시간 순위 <span class="hint-inline">— 승수 우선 · 득실차 순</span></h2>
@@ -547,6 +563,12 @@ function applyLiveUpdate() {
 }
 
 function bindLiveViewer() {
+  const home = $('#lv-home');
+  if (home) home.addEventListener('click', () => {
+    // #live 해시를 지우고 새로고침 → 앵그리 앱 화면으로 (관리자는 자기 관리자 화면으로 복귀)
+    history.replaceState(null, '', location.pathname + location.search);
+    location.reload();
+  });
   const nt = $('#lv-nametoggle');
   if (nt) nt.addEventListener('click', () => { state.showRealNames = !state.showRealNames; render(); });
   document.querySelectorAll('[data-ls]').forEach((el) => {
@@ -1202,7 +1224,8 @@ function renderResult() {
           <button class="ghost mini2" id="live-copy">🔗 링크 복사</button>
           <button class="ghost mini2" id="live-open">실시간 화면 열기</button>
           ${isTour ? '<button class="primary mini2" id="live-finalize">결과 확정·저장</button>' : ''}
-          <span class="hint-inline">멤버들이 링크에서 점수를 입력하면 실시간 순위가 갱신됩니다.${isTour ? ' 확정 저장하면 앵그리랭킹에 누적되고 실시간 대회가 종료됩니다.' : ''}</span>
+          <button class="ghost mini2" id="live-stop">대회 중단</button>
+          <span class="hint-inline">멤버들이 링크에서 점수를 입력하면 실시간 순위가 갱신됩니다.${isTour ? ' 확정 저장하면 앵그리랭킹에 누적되고 실시간 대회가 종료됩니다.' : ''} "대회 중단"은 저장 없이 종료합니다.</span>
         </div>` : ''}
         ${res.liveId ? `<div id="admin-live" class="no-print">${renderAdminLive()}</div>` : ''}
       </div>
@@ -1629,11 +1652,32 @@ function bindResult() {
   const liveOpen = $('#live-open');
   if (liveOpen) liveOpen.addEventListener('click', () => {
     const base = location.protocol === 'file:' ? PUBLIC_URL : location.href.split('#')[0];
-    location.href = `${base}#live=${state.result.liveId}`;
+    const url = `${base}#live=${state.result.liveId}`;
+    // 새 탭으로 열어 관리자 화면을 유지 (팝업 차단 시 현재 탭으로 이동)
+    const w = window.open(url, '_blank');
+    if (!w) location.href = url;
   });
   const liveFin = $('#live-finalize');
   if (liveFin) liveFin.addEventListener('click', finalizeLiveEvent);
+  const liveStop = $('#live-stop');
+  if (liveStop) liveStop.addEventListener('click', stopLiveEvent);
   ensureAdminLiveSub(); // 진행 중 라이브가 있으면 관리자 화면에서도 실시간 구독
+}
+
+// 관리자: 실시간 대회를 저장 없이 중단(종료). Firestore 이벤트 삭제 → 기존 링크는 연결 종료됨
+async function stopLiveEvent() {
+  const res = state.result;
+  const entry = state.history[state.currentIdx];
+  if (!res || !res.liveId) return;
+  if (!confirm('실시간 대회를 중단할까요? 저장하지 않고 종료되며, 공유한 링크는 더 이상 동작하지 않습니다.')) return;
+  const liveId = res.liveId;
+  res.liveId = null;
+  if (entry) entry.liveId = null;
+  if (state.liveAdmin) { try { state.liveAdmin.unsub && state.liveAdmin.unsub(); } catch (e) {} state.liveAdmin = null; }
+  persistAll();
+  try { await liveDelete(liveId); } catch (e) { /* 정리 실패 무시 */ }
+  toast('실시간 대회를 중단했습니다.');
+  render();
 }
 
 // 실시간 대회 링크 생성·복사 (TinyURL 단축 시도)
@@ -1737,22 +1781,16 @@ function adminLiveNameOf(id) {
 function renderAdminLive() {
   const res = state.result;
   const scores = (state.liveAdmin && state.liveAdmin.id === res.liveId) ? state.liveAdmin.scores : {};
-  const rows = rankingRowsFrom(res.rounds, scores, adminLiveNameOf);
+  const { rows, log } = rankingDataFrom(res.rounds, scores, adminLiveNameOf);
   let total = 0, entered = 0;
-  const lines = [];
   res.rounds.forEach((rd, r) => rd.games.forEach((g) => {
     total++;
     const sc = scores[gidOf(r, g.court)] || {};
-    if (sc.a != null && sc.b != null) {
-      entered++;
-      const nm = (t) => t.map((x) => esc(adminLiveNameOf(x))).join('·');
-      lines.push(`<div class="livescore-line">${r + 1}R ${g.court} · ${nm(g.teams[0])} <b>${sc.a}:${sc.b}</b> ${nm(g.teams[1])}</div>`);
-    }
+    if (sc.a != null && sc.b != null) entered++;
   }));
   return `<div class="live-progress">
     <div class="hint-inline" style="display:block;margin-bottom:6px">🔴 실시간 진행 — <b>${entered}/${total}</b> 게임 입력됨 <span class="hint-inline">(멤버가 링크에서 입력하면 자동 갱신)</span></div>
-    ${rankTableHtml(rows)}
-    ${lines.length ? `<div class="livescore-list">${lines.join('')}</div>` : ''}
+    ${rankTableHtml(rows, log)}
   </div>`;
 }
 
