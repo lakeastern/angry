@@ -2121,6 +2121,20 @@ function applySwap(selA, selB) {
   const va = a.get();
   a.set(b.get());
   b.set(va);
+  recomputeLessons(); // A·B코트 변경 후 각 라운드의 C코트(레슨/대기)를 게임에 없는 인원으로 재계산
+}
+
+// 각 라운드의 레슨/대기 명단 = 그 라운드 게임에 없는 & 제외되지 않은 참가자 (명단 순서)
+function recomputeLessons() {
+  const res = state.result;
+  if (!res || !res.plan) return;
+  const order = res.plan.players.map((p) => p.id);
+  res.rounds.forEach((rd) => {
+    const inGame = new Set();
+    rd.games.forEach((g) => g.teams.forEach((t) => t.forEach((id) => inGame.add(id))));
+    const excluded = new Set(rd.excluded || []);
+    rd.lesson = order.filter((id) => !inGame.has(id) && !excluded.has(id));
+  });
 }
 
 function revalidate() {
