@@ -906,7 +906,9 @@ function renderRanking() {
              <tr><th>순위</th><th style="text-align:left">이름</th><th>종합점수</th><th>승-패</th><th>득</th><th>실</th><th>득실차</th><th>경기</th>${single ? '<th style="text-align:left">경기별(득실)</th>' : ''}</tr>
              ${rankRows}
            </table></div>
-           <div style="margin-top:10px"><b class="hint-inline">저장된 대회</b>${eventRows}</div>`
+           <div style="margin-top:10px"><b class="hint-inline">저장된 대회</b>${eventRows}
+             <div class="hint" style="margin-top:4px">점수를 잘못 저장했다면: 위 대진표의 버전(V#)에서 해당 대회를 열고 <b>"📝 결과 입력"</b>으로 고친 뒤 <b>"이 대회 결과 저장"</b>을 다시 누르면 이 기록이 갱신됩니다. (또는 ×로 삭제)</div>
+           </div>`
         : '<div class="hint" style="margin-top:8px">아직 저장된 대회 결과가 없습니다. 앵그리대회 대진표에서 "📝 결과 입력"으로 스코어를 입력하고 저장하세요.</div>'}
       <div class="row" style="margin-top:10px">
         <button class="ghost mini2" id="rank-export">⬇ 백업 내보내기</button>
@@ -1226,9 +1228,9 @@ function renderResult() {
           <b>🔴 실시간 대회 진행 중</b>
           <button class="ghost mini2" id="live-copy">🔗 링크 복사</button>
           <button class="ghost mini2" id="live-open">실시간 화면 열기</button>
-          ${isTour ? '<button class="primary mini2" id="live-finalize">결과 확정·저장</button>' : ''}
-          <button class="ghost mini2" id="live-stop">대회 중단</button>
-          <span class="hint-inline">멤버들이 링크에서 점수를 입력하면 실시간 순위가 갱신됩니다.${isTour ? ' 확정 저장하면 앵그리랭킹에 누적되고 실시간 대회가 종료됩니다.' : ''} "대회 중단"은 저장 없이 종료합니다.</span>
+          ${isTour ? '<button class="primary mini2" id="live-finalize">결과 저장</button>' : ''}
+          <button class="ghost mini2" id="live-stop">대회 종료</button>
+          <span class="hint-inline">멤버가 링크에서 점수를 입력하면 실시간 순위가 갱신됩니다.${isTour ? ' "결과 저장"은 현재까지 결과를 앵그리랭킹에 반영하며, 링크는 계속 유지되어 다시 저장할 수 있습니다.' : ''} "대회 종료"를 눌러야 링크가 닫힙니다.</span>
         </div>` : ''}
         ${res.liveId ? `<div id="admin-live" class="no-print">${renderAdminLive()}</div>` : ''}
       </div>
@@ -1687,14 +1689,14 @@ async function stopLiveEvent() {
   const res = state.result;
   const entry = state.history[state.currentIdx];
   if (!res || !res.liveId) return;
-  if (!confirm('실시간 대회를 중단할까요? 저장하지 않고 종료되며, 공유한 링크는 더 이상 동작하지 않습니다.')) return;
+  if (!confirm('실시간 대회를 종료할까요? 공유한 링크가 닫혀 더 이상 점수를 입력할 수 없습니다.\n(이미 "결과 저장"한 앵그리랭킹 기록은 그대로 남습니다.)')) return;
   const liveId = res.liveId;
   res.liveId = null;
   if (entry) entry.liveId = null;
   if (state.liveAdmin) { try { state.liveAdmin.unsub && state.liveAdmin.unsub(); } catch (e) {} state.liveAdmin = null; }
   persistAll();
   try { await liveDelete(liveId); } catch (e) { /* 정리 실패 무시 */ }
-  toast('실시간 대회를 중단했습니다.');
+  toast('실시간 대회를 종료했습니다. (링크 닫힘)');
   render();
 }
 
@@ -1743,7 +1745,8 @@ async function startLiveEvent() {
   }
 }
 
-// 관리자: 실시간 점수를 확정해 앵그리랭킹(로컬 누적)에 저장하고 실시간 대회 종료
+// 관리자: 현재까지의 실시간 점수를 앵그리랭킹(로컬 누적)에 저장(갱신). 대회 링크는 계속 유지.
+// 실수로 눌러도 링크가 끊기지 않으며, 게임이 더 진행되면 다시 눌러 갱신할 수 있다. 종료는 "대회 종료" 버튼.
 async function finalizeLiveEvent() {
   const res = state.result;
   const entry = state.history[state.currentIdx];
@@ -1758,28 +1761,28 @@ async function finalizeLiveEvent() {
   catch (e) { toast('실시간 점수를 불러오지 못했습니다. 인터넷 연결을 확인하세요.'); return; }
   const memberOfAlias = (aliasId) => assign[aliasId];
   const games = [];
-  let entered = 0, tie = 0;
-  res.rounds.forEach((rd, r) => rd.games.forEach((g) => {
+  const entryScores = {}; // 나중에 버전에서 열어 수정할 수 있도록 스냅샷에도 보관
+  let total = 0, entered = 0, tie = 0;
+  res.rounds.forEach((rd, r) => rd.games.forEach((g, gi) => {
+    total++;
     const sc = scores[gidOf(r, g.court)] || {};
     const a = sc.a, b = sc.b;
     if (a == null || b == null) return;
     entered++;
+    entryScores[r + ':' + gi] = { a, b };
     if (a === b) { tie++; return; }
     games.push({ round: r, court: g.court, teamA: g.teams[0].map(memberOfAlias), teamB: g.teams[1].map(memberOfAlias), scoreA: a, scoreB: b });
   }));
   if (!entered) { toast('입력된 게임 점수가 없습니다.'); return; }
-  if (tie > 0) { toast(`동점 게임이 ${tie}개 있습니다. 실시간 화면에서 승패가 갈리도록 수정 후 확정하세요.`); return; }
+  if (tie > 0) { toast(`동점 게임이 ${tie}개 있습니다. 승패가 갈리도록 수정 후 저장하세요.`); return; }
+  if (entered < total && !confirm(`아직 ${entered}/${total} 게임만 입력됐습니다.\n입력된 결과까지만 앵그리랭킹에 저장합니다.\n실시간 대회는 계속 열려 있어 나중에 다시 저장할 수 있습니다. 계속할까요?`)) return;
   const players = [...new Set(Object.values(assign).filter(Boolean))].map((mid) => ({ memberId: mid, name: (memberOf(mid) || {}).name || mid }));
   const id = (entry && entry.resultId) || uid();
   resultStore.add({ id, date: new Date().toLocaleDateString('ko-KR'), mode: 'tournament', title: '앵그리대회', players, games });
-  if (entry) { entry.resultId = id; }
-  const liveId = res.liveId;
-  res.liveId = null;
-  if (entry) entry.liveId = null;
+  if (entry) { entry.resultId = id; entry.scores = entryScores; }
   persistAll();
-  try { await liveDelete(liveId); } catch (e) { /* 정리 실패는 무시 */ }
   state.ui.ranking = true;
-  toast('결과를 확정해 앵그리랭킹에 저장했습니다. 실시간 대회가 종료되었습니다.');
+  toast(`결과를 앵그리랭킹에 저장했습니다${entered < total ? ` (현재 ${entered}/${total}게임)` : ''}. 실시간 대회는 계속 진행 중입니다 — 끝났으면 "대회 종료"를 누르세요.`);
   render();
 }
 
