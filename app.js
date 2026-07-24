@@ -1093,12 +1093,7 @@ function renderActions() {
   <section class="card no-print">
     <div class="row">
       <button class="primary" id="gen">대진표 생성</button>
-      ${state.result && !state.result.fatal ? '<button class="ghost" id="print">🖨 인쇄</button>' : ''}
       ${state.result && !state.result.fatal ? '<button class="ghost" id="share-b">📤 대진표 공유 링크</button>' : ''}
-      ${state.result && !state.result.fatal
-        ? `<button class="ghost" id="undo" ${state.undoStack.length ? '' : 'disabled'} title="스왑 되돌리기 (Ctrl+Z)">↩ 되돌리기</button>
-           <button class="ghost" id="redo" ${state.redoStack.length ? '' : 'disabled'} title="되돌린 스왑 다시 실행 (Ctrl+Y)">↪ 다시 실행</button>`
-        : ''}
     </div>
     ${state.history.length > 1 ? `<div class="vrow"><span class="hint-inline">버전 비교:</span> ${versions}</div>` : ''}
   </section>`;
@@ -1258,6 +1253,8 @@ function renderResult() {
     ? `<button class="ghost mini2" id="score-toggle">${state.scoreMode ? '결과 입력 닫기' : '📝 결과 입력'}</button>`
     : '';
   const imageBtn = '<button class="ghost mini2" id="result-image">📷 이미지 저장</button>';
+  // 스왑 되돌리기/다시 실행 — 아이콘만(심플). 이미지 저장 버튼 옆
+  const undoRedoBtns = `<button class="ghost mini2" id="undo" ${state.undoStack.length ? '' : 'disabled'} title="스왑 되돌리기 (Ctrl+Z)">↩</button><button class="ghost mini2" id="redo" ${state.redoStack.length ? '' : 'disabled'} title="되돌린 스왑 다시 실행 (Ctrl+Y)">↪</button>`;
   // 실시간 대회(게임데이·앵그리대회): 시작 버튼 / 진행 중 표시
   const liveBtn = (!isReg && liveEnabled() && !res.liveId)
     ? '<button class="ghost mini2" id="live-start">🔴 실시간 대회 시작</button>'
@@ -1265,7 +1262,7 @@ function renderResult() {
 
   return `
   <section class="card">
-    <h2>${modeLabel} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span> <span class="no-print">${imageBtn} ${toggleBtn} ${scoreBtn} ${liveBtn}</span></h2>
+    <h2>${modeLabel} 대진표 ${verLabel} <span class="hint-inline">(시드 ${res.seed}${res.edited ? ' · 수동 수정됨' : ''})</span> <span class="no-print">${imageBtn} ${undoRedoBtns} ${toggleBtn} ${scoreBtn} ${liveBtn}</span></h2>
     <div class="result-cols">
       <div class="bracket-col">
         <div class="bracket-scroll"><table class="bracket">
@@ -1642,8 +1639,6 @@ function bindAttendance() {
 function bindActions() {
   const gen = $('#gen');
   if (gen) gen.addEventListener('click', () => generate());
-  const print = $('#print');
-  if (print) print.addEventListener('click', () => window.print());
   const shareB = $('#share-b');
   if (shareB) shareB.addEventListener('click', async () => {
     // 복사 먼저(새 탭을 먼저 열면 포커스를 잃어 클립보드 복사가 실패한다), 그 다음 새 탭
