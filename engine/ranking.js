@@ -18,21 +18,28 @@ export function computeRanking(results) {
 
   for (const r of results || []) {
     const nameOf = new Map((r.players || []).map((p) => [p.memberId, p.name]));
-    for (const g of r.games || []) {
+    // 점수 반영 인당 게임 수 상한 (capGames): 각 선수의 앞선 N게임까지만 집계. 없으면 전부.
+    const cap = Number.isFinite(+r.capGames) && +r.capGames > 0 ? +r.capGames : Infinity;
+    const counted = new Map(); // memberId → 이 대회에서 지금까지 집계된 게임 수
+    // 라운드→코트 순으로 정렬해 "앞선 게임"의 기준을 명확히
+    const games = [...(r.games || [])].sort((x, y) =>
+      (Number(x.round) || 0) - (Number(y.round) || 0) || String(x.court || '').localeCompare(String(y.court || ''))
+    );
+    for (const g of games) {
       const a = Number(g.scoreA);
       const b = Number(g.scoreB);
       if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) continue; // 미입력·동점 게임은 집계 제외
       const teamA = (g.teamA || []).filter(Boolean);
       const teamB = (g.teamB || []).filter(Boolean);
       const aWin = a > b;
-      for (const id of teamA) {
+      const take = (id, gf, ga, win) => {
+        if ((counted.get(id) || 0) >= cap) return; // 상한 초과분은 점수에 반영하지 않음
+        counted.set(id, (counted.get(id) || 0) + 1);
         const s = ensure(id, nameOf.get(id));
-        s.G++; s.GF += a; s.GA += b; if (aWin) s.W++; else s.L++;
-      }
-      for (const id of teamB) {
-        const s = ensure(id, nameOf.get(id));
-        s.G++; s.GF += b; s.GA += a; if (!aWin) s.W++; else s.L++;
-      }
+        s.G++; s.GF += gf; s.GA += ga; if (win) s.W++; else s.L++;
+      };
+      for (const id of teamA) take(id, a, b, aWin);
+      for (const id of teamB) take(id, b, a, !aWin);
     }
   }
 

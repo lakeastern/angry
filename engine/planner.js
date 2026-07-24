@@ -134,17 +134,13 @@ export function buildPlan(config) {
       T = raw / 4;
     } else {
       const d = raw % 4;
-      // 올림하면 (4−d)명이 +1게임, 내림하면 d명이 −1게임 — 편차 인원이 적은 쪽, 동률이면 +1 우선
-      if (4 - d <= d) {
-        T = Math.ceil(raw / 4);
-        extraGames = { delta: +1, count: 4 - d };
-      } else {
-        T = Math.floor(raw / 4);
-        extraGames = { delta: -1, count: d };
-      }
+      // 전원이 최소 목표 게임 수를 채우도록 항상 올림 → (4−d)명이 +1게임을 더 한다.
+      // (점수 반영은 랭킹에서 인당 상한으로 목표 게임 수까지만 집계 가능)
+      T = Math.ceil(raw / 4);
+      extraGames = { delta: +1, count: 4 - d };
       planWarnings.push({
         code: 'W_UNEVEN_GAMES',
-        message: `${N}명 × ${gamesPerPerson}게임은 4로 나누어떨어지지 않아 ${extraGames.count}명이 ${gamesPerPerson + extraGames.delta}게임을 하게 됩니다.`,
+        message: `${N}명 × ${gamesPerPerson}게임은 4로 나누어떨어지지 않아 ${extraGames.count}명이 ${gamesPerPerson + 1}게임을 하게 됩니다(전원 최소 ${gamesPerPerson}게임 보장). 점수는 앵그리랭킹에서 인당 ${gamesPerPerson}게임까지만 반영하도록 설정할 수 있습니다.`,
       });
     }
     R = Math.ceil(T / baseCourts);

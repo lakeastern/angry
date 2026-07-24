@@ -82,6 +82,35 @@ test('같은 득실차면 득점(GF) 많은 쪽이 위', () => {
   assert.ok(A.rank < B.rank, '같은 득실차(+2)면 득점 7인 A가 득점 6인 B보다 위');
 });
 
+test('capGames — 인당 앞선 N게임까지만 점수 반영', () => {
+  const players = ['A', 'B', 'C', 'D'].map((id) => ({ memberId: id, name: id }));
+  // A는 3게임(모두 승) 진행, capGames=2 → 앞 2게임만 반영 (라운드 순)
+  const games = [
+    { round: 0, court: 'a', teamA: ['A', 'B'], teamB: ['C', 'D'], scoreA: 6, scoreB: 1 },
+    { round: 1, court: 'a', teamA: ['A', 'B'], teamB: ['C', 'D'], scoreA: 6, scoreB: 2 },
+    { round: 2, court: 'a', teamA: ['A', 'B'], teamB: ['C', 'D'], scoreA: 6, scoreB: 3 },
+  ];
+  const capped = computeRanking([{ id: 'r1', players, games, capGames: 2 }]);
+  const A = capped.find((r) => r.memberId === 'A');
+  assert.equal(A.G, 2, '앞 2게임만 집계');
+  assert.equal(A.GF, 12); assert.equal(A.GA, 3, '3번째 게임(실점3) 제외');
+  // 상한 없으면 3게임 모두
+  const full = computeRanking([{ id: 'r1', players, games }]);
+  assert.equal(full.find((r) => r.memberId === 'A').G, 3);
+});
+
+test('capGames — 라운드 순서대로 앞선 게임을 센다(입력 순서 무관)', () => {
+  const players = ['A', 'B', 'C', 'D'].map((id) => ({ memberId: id, name: id }));
+  // 저장 순서를 라운드 역순으로 넣어도 라운드 오름차순 앞 1게임만
+  const games = [
+    { round: 2, court: 'a', teamA: ['A', 'B'], teamB: ['C', 'D'], scoreA: 0, scoreB: 6 }, // R2 패
+    { round: 0, court: 'a', teamA: ['A', 'B'], teamB: ['C', 'D'], scoreA: 6, scoreB: 0 }, // R0 승
+  ];
+  const rows = computeRanking([{ id: 'r1', players, games, capGames: 1 }]);
+  const A = rows.find((r) => r.memberId === 'A');
+  assert.equal(A.G, 1); assert.equal(A.W, 1, 'R0(승)이 앞선 게임');
+});
+
 test('동률(승수·득실·득점·승률 동일)은 같은 순위', () => {
   const players = ['A', 'B', 'C', 'D'].map((id) => ({ memberId: id, name: id }));
   // A와 B 각각 1승 GD+3 (대칭). 이름순으로 나열되지만 rank 동일
