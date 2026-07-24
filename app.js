@@ -65,7 +65,8 @@ const state = {
   share: null, // 공유 링크로 열었을 때의 페이로드
   viewerMode: false, // 'b'(대진표 보기) | 'r'(명단 수신 대기) | 'live'(실시간 대회) | false
   shareUnlocked: false, // 공유 링크를 관리자 키로 자동 해독했는지
-  live: null, // 실시간 대회: { id, event, scores:{gid:{a,b}}, unsub, saving }
+  live: null, // 실시간 대회 뷰어: { id, event, scores:{gid:{a,b}}, unsub, saving }
+  liveAdmin: null, // 관리자 화면의 진행 중 라이브 구독: { id, scores, unsub }
   undoStack: [], // 수동 스왑 되돌리기용 rounds 스냅샷 (현재 버전 한정)
   redoStack: [],
 };
@@ -439,30 +440,25 @@ async function openLiveEvent(id) {
   }
 }
 
-// 라이브 이벤트(브래킷+현재 스코어)로 랭킹 행 계산
-function liveRankingRows() {
-  const ev = state.live && state.live.event;
-  if (!ev) return [];
-  const b = ev.bracket;
-  const nameOf = (id) => (b.mode === 'tournament' && b.aliasReal && b.aliasReal[id]) ? b.aliasReal[id]
-    : (b.names[id] ? b.names[id][0] : id);
+// 대진(rounds) + 스코어 + 이름함수 → 랭킹 행 (뷰어·관리자 공용 순수 계산)
+function rankingRowsFrom(rounds, scores, nameOf) {
   const ids = new Set();
   const games = [];
-  b.rounds.forEach((rd, r) => rd.games.forEach((g) => {
+  rounds.forEach((rd, r) => rd.games.forEach((g) => {
     (g.teams[0] || []).forEach((id) => ids.add(id));
     (g.teams[1] || []).forEach((id) => ids.add(id));
-    const sc = state.live.scores[gidOf(r, g.court)] || {};
+    const sc = scores[gidOf(r, g.court)] || {};
     games.push({ teamA: g.teams[0], teamB: g.teams[1], scoreA: sc.a, scoreB: sc.b });
   }));
   const players = [...ids].map((id) => ({ memberId: id, name: nameOf(id) }));
   return computeRanking([{ players, games }]);
 }
 
-function renderLiveRankingTable() {
-  const rows = liveRankingRows();
+// 랭킹 행 → 표 HTML (뷰어·관리자 공용)
+function rankTableHtml(rows) {
   const medal = (rk) => (rk === 1 ? '🥇' : rk === 2 ? '🥈' : rk === 3 ? '🥉' : rk);
   const played = rows.filter((r) => r.G > 0);
-  if (!played.length) return '<div class="hint" style="margin-top:6px">아직 입력된 게임 결과가 없습니다. 게임이 끝나면 위 대진표에서 점수를 입력하세요.</div>';
+  if (!played.length) return '<div class="hint" style="margin-top:6px">아직 입력된 게임 결과가 없습니다. 게임이 끝나면 대진표에서 점수를 입력하세요.</div>';
   const body = played.map((r) => `<tr>
     <td>${medal(r.rank)}</td>
     <td style="text-align:left;font-weight:700">${esc(r.name)}</td>
@@ -476,6 +472,17 @@ function renderLiveRankingTable() {
     ${body}
   </table></div>`;
 }
+
+function liveRankingRows() {
+  const ev = state.live && state.live.event;
+  if (!ev) return [];
+  const b = ev.bracket;
+  const nameOf = (id) => (b.mode === 'tournament' && b.aliasReal && b.aliasReal[id]) ? b.aliasReal[id]
+    : (b.names[id] ? b.names[id][0] : id);
+  return rankingRowsFrom(b.rounds, state.live.scores, nameOf);
+}
+
+function renderLiveRankingTable() { return rankTableHtml(liveRankingRows()); }
 
 function renderLiveViewer() {
   const L = state.live;
@@ -1197,6 +1204,7 @@ function renderResult() {
           ${isTour ? '<button class="primary mini2" id="live-finalize">결과 확정·저장</button>' : ''}
           <span class="hint-inline">멤버들이 링크에서 점수를 입력하면 실시간 순위가 갱신됩니다.${isTour ? ' 확정 저장하면 앵그리랭킹에 누적되고 실시간 대회가 종료됩니다.' : ''}</span>
         </div>` : ''}
+        ${res.liveId ? `<div id="admin-live" class="no-print">${renderAdminLive()}</div>` : ''}
       </div>
       ${warnHtml ? `<div class="note-side">${warnHtml}</div>` : ''}
     </div>
@@ -1625,6 +1633,7 @@ function bindResult() {
   });
   const liveFin = $('#live-finalize');
   if (liveFin) liveFin.addEventListener('click', finalizeLiveEvent);
+  ensureAdminLiveSub(); // 진행 중 라이브가 있으면 관리자 화면에서도 실시간 구독
 }
 
 // 실시간 대회 링크 생성·복사 (TinyURL 단축 시도)
@@ -1710,6 +1719,63 @@ async function finalizeLiveEvent() {
   state.ui.ranking = true;
   toast('결과를 확정해 앵그리랭킹에 저장했습니다. 실시간 대회가 종료되었습니다.');
   render();
+}
+
+// ─── 관리자 화면 실시간 진행 패널 (링크 페이지로 가지 않고도 점수·순위 확인) ───
+function adminLiveNameOf(id) {
+  const res = state.result;
+  const assign = res.aliasAssign || {};
+  if (res.mode === 'tournament') {
+    const m = memberOf(assign[id]);
+    if (m) return m.name;
+    return (res.plan.byId.get(id) || {}).label || id; // 미배정이면 별칭
+  }
+  const m = memberOf(id);
+  return m ? m.name : ((res.plan.byId.get(id) || {}).label || id);
+}
+
+function renderAdminLive() {
+  const res = state.result;
+  const scores = (state.liveAdmin && state.liveAdmin.id === res.liveId) ? state.liveAdmin.scores : {};
+  const rows = rankingRowsFrom(res.rounds, scores, adminLiveNameOf);
+  let total = 0, entered = 0;
+  const lines = [];
+  res.rounds.forEach((rd, r) => rd.games.forEach((g) => {
+    total++;
+    const sc = scores[gidOf(r, g.court)] || {};
+    if (sc.a != null && sc.b != null) {
+      entered++;
+      const nm = (t) => t.map((x) => esc(adminLiveNameOf(x))).join('·');
+      lines.push(`<div class="livescore-line">${r + 1}R ${g.court} · ${nm(g.teams[0])} <b>${sc.a}:${sc.b}</b> ${nm(g.teams[1])}</div>`);
+    }
+  }));
+  return `<div class="live-progress">
+    <div class="hint-inline" style="display:block;margin-bottom:6px">🔴 실시간 진행 — <b>${entered}/${total}</b> 게임 입력됨 <span class="hint-inline">(멤버가 링크에서 입력하면 자동 갱신)</span></div>
+    ${rankTableHtml(rows)}
+    ${lines.length ? `<div class="livescore-list">${lines.join('')}</div>` : ''}
+  </div>`;
+}
+
+function refreshAdminLive() {
+  const el = document.querySelector('#admin-live');
+  if (el && state.result && state.result.liveId) el.innerHTML = renderAdminLive();
+}
+
+// 진행 중 라이브 이벤트를 관리자 화면에서 구독 (중복 구독 방지, 없으면 정리)
+function ensureAdminLiveSub() {
+  const liveId = state.result && state.result.liveId;
+  if (!liveId) {
+    if (state.liveAdmin) { try { state.liveAdmin.unsub && state.liveAdmin.unsub(); } catch (e) {} state.liveAdmin = null; }
+    return;
+  }
+  if (state.liveAdmin && state.liveAdmin.id === liveId) { refreshAdminLive(); return; }
+  if (state.liveAdmin) { try { state.liveAdmin.unsub && state.liveAdmin.unsub(); } catch (e) {} }
+  state.liveAdmin = { id: liveId, scores: {}, unsub: null };
+  liveSubscribeScores(liveId, (scores) => {
+    if (!state.liveAdmin || state.liveAdmin.id !== liveId) return;
+    state.liveAdmin.scores = scores;
+    refreshAdminLive();
+  }).then((u) => { if (state.liveAdmin && state.liveAdmin.id === liveId) state.liveAdmin.unsub = u; }).catch(() => {});
 }
 
 function loadScoresFromEntry() {
