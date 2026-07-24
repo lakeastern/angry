@@ -552,8 +552,11 @@ function bindLiveViewer() {
       state.live.scores[gid] = { a, b }; // 낙관적 반영
       const rk = document.querySelector('#live-rank');
       if (rk) rk.innerHTML = renderLiveRankingTable();
-      try { await liveSetScore(state.live.id, gid, a, b); }
-      catch (e) { toast('점수 저장 실패 — 인터넷 연결을 확인하세요.'); }
+      try {
+        if (a != null && b != null) await liveSetScore(state.live.id, gid, a, b); // 양쪽 다 입력됐을 때만 저장
+        else if (a == null && b == null) await liveSetScore(state.live.id, gid, null, null); // 둘 다 비면 결과 삭제
+        // 한쪽만 입력된 미완성 상태는 서버에 쓰지 않는다 (나머지 칸을 채우면 저장됨)
+      } catch (e) { toast('점수 저장 실패 — 인터넷 연결을 확인하세요.'); }
     });
   });
 }
