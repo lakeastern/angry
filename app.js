@@ -98,6 +98,7 @@ const state = {
   rankFilter: 'y1', // 앵그리랭킹 기간: 'y1'(지난 1년, 기본) | 'all'(전체) | 'Y2026'(연도) | resultId(대회별 단일)
   rankBasis: 'total', // 랭킹 기준: 'total'(누적) | 'avg'(평균)
   rankMinGames: 4, // 평균 기준일 때 최소 경기 수 (미달자는 순위 없이 아래 표시)
+  rankRosterOnly: false, // 현재 클럽 명단(게스트 제외)만 줄 세우기
   ui: { roster: null, adv: null, exclude: null, ranking: null, advHelp: false }, // details 접힘 상태 (null = 자동) + 고급 설정 설명 표시
   share: null, // 공유 링크로 열었을 때의 페이로드
   viewerMode: false, // 'b'(대진표 보기) | 'r'(명단 수신 대기) | 'live'(실시간 대회) | false
@@ -987,7 +988,17 @@ function renderRanking() {
         ? results.filter((r) => { const t = resultDateMs(r); return t != null && new Date(t).getFullYear() === +yearMatch[1]; })
         : results.filter((r) => r.id === state.rankFilter);
   const avgBasis = state.rankBasis === 'avg';
-  const rows = computeRanking(scoped, { basis: state.rankBasis, minGames: avgBasis ? state.rankMinGames : 0 });
+  // 현재 클럽 명단(게스트 제외)만 줄 세우기 — 탈퇴·게스트·과거 이력의 비회원을 순위에서 제외
+  const memberKeys = [...state.roster.men, ...state.roster.women]
+    .filter((m) => !m.guest)
+    .flatMap((m) => [m.id, (m.name || '').trim()]);
+  const rosterOnly = state.rankRosterOnly && memberKeys.length > 0; // 명단이 비어 있으면 무시
+  const rows = computeRanking(scoped, {
+    basis: state.rankBasis,
+    minGames: avgBasis ? state.rankMinGames : 0,
+    only: rosterOnly ? memberKeys : null,
+  });
+  const rowsAllPeople = rosterOnly ? computeRanking(scoped, { basis: state.rankBasis }) : rows; // 제외 인원 수 안내용
   const medal = (rk) => (rk === 1 ? '🥇' : rk === 2 ? '🥈' : rk === 3 ? '🥉' : (rk == null ? '–' : rk));
   // 단일 대회 보기: 선수별 경기 스코어 로그 (예: 60 26 36 64, 이긴 게임 강조)
   const single = results.some((r) => r.id === state.rankFilter) && scoped.length === 1;
@@ -1038,7 +1049,8 @@ function renderRanking() {
   const filterChips = results.length
     ? `<div class="vrow"><span class="hint-inline">기간:</span> ${chip('y1', '지난 1년')}${years.map((y) => chip('Y' + y, y + '년')).join('')}${chip('all', '전체')}</div>
        <div class="vrow"><span class="hint-inline">기준:</span> ${bchip('total', '누적')}${bchip('avg', '평균')}
-         ${avgBasis ? `<span class="hint-inline">최소</span> <select id="rank-mingames">${minOpts}</select>` : ''}</div>
+         ${avgBasis ? `<span class="hint-inline">최소</span> <select id="rank-mingames">${minOpts}</select>` : ''}
+         <span class="vchip ${state.rankRosterOnly ? 'on' : ''}" data-rankroster="1" title="현재 클럽 명단에 있는 정회원만 순위에 넣습니다 (게스트·탈퇴·과거 비회원 제외)">👥 현재 명단만</span></div>
        <div class="vrow"><span class="hint-inline">대회별:</span> ${results.map((r) => chip(r.id, `${r.date || ''} ${r.title || '앵그리대회'}`)).join('')}</div>`
     : '';
   const inCloud = new Set((state.cloudResults || []).map((r) => r.id));
@@ -1071,8 +1083,12 @@ function renderRanking() {
   const basisLabel = avgBasis
     ? `평균 기준 (승률 → 경기당 득실차)${state.rankMinGames ? ` · ${state.rankMinGames}경기 미만은 순위 제외` : ''}`
     : '누적 기준 (승수 → 패 적은 순 → 득실차)';
-  const scopeLabel = `${periodLabel} · ${basisLabel} · 대회 ${scoped.length}개`;
+  const excluded = rosterOnly ? rowsAllPeople.length - rows.length : 0;
+  const scopeLabel = `${periodLabel} · ${basisLabel} · 대회 ${scoped.length}개${rosterOnly ? ' · 현재 명단만' : ''}`;
   const unranked = rows.filter((r) => r.rank == null).length;
+  const rosterHint = state.rankRosterOnly && !memberKeys.length
+    ? '<div class="hint" style="margin-top:4px">클럽 명단이 비어 있어 "현재 명단만"을 적용하지 않았습니다. ① 클럽 명단 관리에서 멤버를 추가하세요.</div>'
+    : (excluded ? `<div class="hint" style="margin-top:4px">현재 명단에 없는 ${excluded}명(게스트·탈퇴·과거 참가자)을 순위에서 제외했습니다.</div>` : '');
   return `
   <section class="card no-print">
     <details data-uikey="ranking" ${open ? 'open' : ''}>
@@ -1087,6 +1103,7 @@ function renderRanking() {
                : `<th>종합점수</th><th>${hasDraw ? '승-무-패' : '승-패'}</th><th>득</th><th>실</th><th>득실차</th>`}<th>경기</th>${single ? '<th style="text-align:left">경기별(득실)</th>' : ''}</tr>
              ${rankRows}
            </table></div>
+           ${rosterHint}
            ${unranked ? `<div class="hint" style="margin-top:4px">${unranked}명은 ${state.rankMinGames}경기 미만이라 순위 없이(–) 아래에 표시했습니다.</div>` : ''}
            <div style="margin-top:10px"><b class="hint-inline">저장된 대회</b>${eventRows}
              <div class="hint" style="margin-top:4px">점수를 잘못 저장했다면: 위 대진표의 버전(V#)에서 해당 대회를 열고 <b>"📝 결과 입력"</b>으로 고친 뒤 <b>"이 대회 결과 저장"</b>을 다시 누르면 이 기록이 갱신됩니다. (또는 ×로 삭제)</div>
@@ -1542,6 +1559,9 @@ function bindRanking() {
   );
   const minG = $('#rank-mingames');
   if (minG) minG.addEventListener('change', () => { state.rankMinGames = +minG.value; render(); });
+  document.querySelectorAll('[data-rankroster]').forEach((el) =>
+    el.addEventListener('click', () => { state.rankRosterOnly = !state.rankRosterOnly; render(); })
+  );
   const signin = $('#cloud-signin');
   if (signin) signin.addEventListener('click', async () => {
     try { await authSignIn(); } catch (e) { toast('로그인 실패: ' + (e && e.code ? e.code : '다시 시도해 주세요')); }

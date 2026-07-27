@@ -202,6 +202,36 @@ test('평균 기준 — 경기당 득실차·평균 승점 계산', () => {
   assert.equal(A.avgGD, 0); assert.equal(A.avgPoints, 1.5); assert.equal(A.winRate, 0.5);
 });
 
+test('only — 지정한 대상만 줄 세우고 순위를 다시 매김 (현재 명단만)', () => {
+  const ppl = ['회원A', '회원B', '게스트', '탈퇴'].map((id) => ({ memberId: id, name: id }));
+  const games = [
+    { round: 0, court: 'a', teamA: ['게스트', '탈퇴'], teamB: ['회원A', '회원B'], scoreA: 6, scoreB: 0 }, // 비회원 승
+    { round: 1, court: 'a', teamA: ['회원A', '게스트'], teamB: ['회원B', '탈퇴'], scoreA: 6, scoreB: 3 },
+  ];
+  const full = computeRanking([{ id: 'r1', players: ppl, games }]);
+  assert.equal(full.length, 4);
+  assert.equal(full[0].name, '게스트', '전체 기준 1위는 2승한 게스트');
+
+  const only = computeRanking([{ id: 'r1', players: ppl, games }], { only: ['회원A', '회원B'] });
+  assert.deepEqual(only.map((r) => r.name), ['회원A', '회원B'], '회원 2명만 남음');
+  assert.deepEqual(only.map((r) => r.rank), [1, 2], '순위가 1·2로 다시 매겨짐');
+  // 제외된 상대와의 경기 기록 자체는 그대로 반영 (실제로 일어난 승패)
+  const a = only.find((r) => r.name === '회원A');
+  assert.equal(a.G, 2); assert.equal(a.W, 1); assert.equal(a.L, 1);
+});
+
+test('only — 멤버 ID로도, 이름으로도 매칭', () => {
+  const games = [{ round: 0, court: 'a', teamA: ['m1', 'm2'], teamB: ['x1', 'x2'], scoreA: 6, scoreB: 2 }];
+  const players = [
+    { memberId: 'm1', name: '홍길동' }, { memberId: 'm2', name: '김철수' },
+    { memberId: 'x1', name: '손님1' }, { memberId: 'x2', name: '손님2' },
+  ];
+  const byId = computeRanking([{ id: 'r1', players, games }], { only: ['m1'] });
+  assert.deepEqual(byId.map((r) => r.name), ['홍길동']);
+  const byName = computeRanking([{ id: 'r1', players, games }], { only: ['김철수'] });
+  assert.deepEqual(byName.map((r) => r.name), ['김철수']);
+});
+
 test('resultDateMs — ISO·ko-KR 두 저장 형식 모두 파싱', () => {
   const iso = resultDateMs({ date: '2026-06-28' });
   const ko = resultDateMs({ date: '2026. 6. 28.' });

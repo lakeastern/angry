@@ -46,7 +46,8 @@ export function playerScoreLogs(result) {
   return out;
 }
 
-// opts: { basis: 'total'(기본) | 'avg', minGames: 평균 기준 최소 경기 수 }
+// opts: { basis: 'total'(기본) | 'avg', minGames: 평균 기준 최소 경기 수,
+//         only: 줄 세울 대상(멤버 ID 또는 이름) 집합 — 없으면 기록에 등장한 전원 }
 export function computeRanking(results, opts = {}) {
   const stat = new Map(); // memberId → { memberId, name, G, W, D, L, GF, GA }
   const ensure = (id, name) => {
@@ -69,15 +70,20 @@ export function computeRanking(results, opts = {}) {
   }
 
   const minGames = Number.isFinite(+opts.minGames) && +opts.minGames > 0 ? Math.floor(+opts.minGames) : 0;
-  const rows = [...stat.values()].map((s) => ({
-    ...s,
-    GD: s.GF - s.GA,
-    points: s.W * 3, // 종합점수(승점) — 표시용. 무승부는 종합점수엔 미반영(경기·득실·무로 기록, 순위는 승수 우선 후 득실차)
-    winRate: s.G ? s.W / s.G : 0,
-    avgGD: s.G ? (s.GF - s.GA) / s.G : 0, // 경기당 평균 득실차
-    avgPoints: s.G ? (s.W * 3) / s.G : 0, // 경기당 평균 승점
-    qualified: s.G >= minGames, // 평균 기준의 최소 경기 수 충족 여부
-  }));
+  // 대상 한정(only): 멤버 ID 또는 이름 집합. 지난 경기 결과 자체는 그대로 두고(승패는 실제로 일어난 일),
+  // 줄 세우는 대상만 걸러 순위를 다시 매긴다. 예: 현재 클럽 명단(게스트 제외)만 시상 대상으로 볼 때.
+  const only = opts.only ? new Set(opts.only) : null;
+  const rows = [...stat.values()]
+    .filter((s) => !only || only.has(s.memberId) || only.has(s.name))
+    .map((s) => ({
+      ...s,
+      GD: s.GF - s.GA,
+      points: s.W * 3, // 종합점수(승점) — 표시용. 무승부는 종합점수엔 미반영(경기·득실·무로 기록, 순위는 승수 우선 후 득실차)
+      winRate: s.G ? s.W / s.G : 0,
+      avgGD: s.G ? (s.GF - s.GA) / s.G : 0, // 경기당 평균 득실차
+      avgPoints: s.G ? (s.W * 3) / s.G : 0, // 경기당 평균 승점
+      qualified: s.G >= minGames, // 평균 기준의 최소 경기 수 충족 여부
+    }));
 
   // 평균 기준: 참석 횟수와 무관하게 비교 — 승률 → 경기당 득실차 → 경기 수(많이 뛴 쪽) → 이름.
   // 최소 경기 수(minGames) 미달자는 순위를 매기지 않고 뒤에 둔다.
