@@ -106,6 +106,40 @@ function docToResult(id, d) {
   return r;
 }
 
+// ─── 클럽 명단 (club/roster) — 관리자만 읽기·쓰기 (실력 순위·개인 특성이 담겨 있어 공개하지 않는다) ───
+export async function rosterSubscribe(cb) {
+  const { db, fs } = await fb();
+  return fs.onSnapshot(
+    fs.doc(db, 'club', 'roster'),
+    (snap) => cb(snap.exists() ? snap.data() : null),
+    (err) => { console.warn('명단 구독 오류', err); cb(undefined, err); }
+  );
+}
+
+export async function rosterPut(roster) {
+  const { db, fs } = await fb();
+  await fs.setDoc(fs.doc(db, 'club', 'roster'), {
+    men: (roster.men || []).map(normMember),
+    women: (roster.women || []).map(normMember),
+    updatedAt: Date.now(),
+  });
+}
+
+// Firestore에 넣을 수 있는 형태로 정리 (undefined 제거, 중첩 배열 없음)
+function normMember(m) {
+  return {
+    id: String(m.id),
+    name: String(m.name || ''),
+    guest: !!m.guest,
+    prefs: {
+      gamePriority: !!(m.prefs && m.prefs.gamePriority),
+      newMember: !!(m.prefs && m.prefs.newMember),
+      mixedPreferred: !!(m.prefs && m.prefs.mixedPreferred),
+    },
+    presetExclude: Array.isArray(m.presetExclude) ? m.presetExclude.map(Number) : [],
+  };
+}
+
 // 결과 실시간 구독 → cb(results[]). 반환: unsubscribe
 export async function resultsSubscribe(cb) {
   const { db, fs } = await fb();

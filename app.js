@@ -4,7 +4,8 @@ import { buildPlan } from './engine/planner.js';
 import { pairKey } from './engine/validate.js';
 import { computeRanking, playerScoreLogs, resultDateMs } from './engine/ranking.js';
 import { liveConfigure, liveEnabled, cloudAvailable, liveCreate, liveGetEvent, liveSetScore, liveSubscribeScores, liveSubscribeEvent, liveFetchScores, liveDelete,
-  authSubscribe, authSignIn, authSignOut, resultsSubscribe, resultsPut, resultsDelete } from './live.js';
+  authSubscribe, authSignIn, authSignOut, resultsSubscribe, resultsPut, resultsDelete,
+  rosterSubscribe, rosterPut } from './live.js';
 
 // Firebase 실시간 대회 설정 (공개 식별자 — 보안은 Firestore 규칙으로. 비밀 아님)
 const FIREBASE_CONFIG = {
@@ -108,6 +109,8 @@ const state = {
   cloudUser: null, // 클라우드 로그인 사용자 { uid, email, name } | null
   cloudResults: null, // 클라우드 랭킹 결과 (null = 아직 못 불러옴 → 로컬 캐시 사용)
   cloudError: null, // 클라우드 연결 오류 메시지
+  rosterCloudReady: false, // 클럽 명단 클라우드 동기화 중
+  rosterCloudError: false, // 클럽 명단 읽기 실패(권한·오프라인)
   undoStack: [], // 수동 스왑 되돌리기용 rounds 스냅샷 (현재 버전 한정)
   redoStack: [],
 };
@@ -168,6 +171,7 @@ function persistAll() {
   save(K_SETTINGS, state.settings);
   save(K_ATTEND, state.attend);
   save(K_HISTORY, state.history);
+  cloudPushRoster(); // 관리자 로그인 상태에서 명단이 바뀌면 클럽 명단(클라우드)에도 반영
 }
 
 // ─── 공유 링크: 압축 + 관리자 비밀번호 암호화 ───
@@ -227,7 +231,9 @@ async function makeShareLink(kind) {
     render();
     return null;
   }
-  const secret = { roster: state.roster, settings: state.settings };
+  // 명단·설정은 링크에 담지 않는다 — 예전에는 담았다가 받는 기기의 클럽 명단을 덮어써 사고가 났다.
+  // 클럽 명단은 클라우드(관리자 Google 로그인)에서만 관리한다.
+  const secret = {};
   const payload = { v: 1, k: kind === 'bracket' ? 'b' : 'r', date: new Date().toLocaleDateString('ko-KR') };
   if (kind === 'bracket') {
     const entry = state.history[state.currentIdx];
@@ -281,11 +287,9 @@ async function shortenLink(link) {
   return link;
 }
 
-// 공유 데이터(복호화된 명단·설정·대진표 구성)를 내 기기에 저장
+// 공유 링크의 대진표를 내 기기의 버전 목록에 추가 (명단·설정은 절대 건드리지 않는다).
+// 예전 버전 링크에 명단이 들어 있어도 무시한다 — 클럽 명단은 클라우드에서만 관리.
 function importShared(dec, payload) {
-  if (dec.roster) state.roster = dec.roster;
-  if (dec.settings) state.settings = Object.assign({}, state.settings, dec.settings);
-  state.attend.selectedIds = state.attend.selectedIds.filter((id) => memberOf(id));
   if (dec.config && payload.b) {
     const exists = state.history.some((h) => h.seed === dec.seed && JSON.stringify(h.rounds) === JSON.stringify(payload.b.rounds));
     if (!exists) {
@@ -299,9 +303,9 @@ function importShared(dec, payload) {
       };
       if (payload.b.mode === 'tournament') {
         entry.mode = 'tournament';
-        // aliasReal(별칭→실명)을 명단에서 이름 매칭해 aliasAssign(별칭→멤버id)으로 복원
+        // aliasReal(별칭→실명)을 내 명단의 이름과 맞춰 aliasAssign(별칭→멤버id)으로 복원
         const byName = {};
-        (dec.roster ? [...dec.roster.men, ...dec.roster.women] : []).forEach((m) => (byName[m.name] = m.id));
+        [...state.roster.men, ...state.roster.women].forEach((m) => (byName[m.name] = m.id));
         const assign = {};
         Object.entries(payload.b.aliasReal || {}).forEach(([alias, name]) => { if (byName[name]) assign[alias] = byName[name]; });
         entry.aliasAssign = assign;
@@ -332,9 +336,10 @@ async function handleShareHash() {
         importShared(dec, payload);
         state.shareUnlocked = true;
         if (payload.k === 'r') {
+          // 예전 "명단 공유 링크" — 이제 명단을 덮어쓰지 않는다(클럽 명단은 클라우드 관리)
           state.viewerMode = false;
           state.share = null;
-          setTimeout(() => toast('공유받은 명단·설정을 불러왔습니다.'), 300);
+          setTimeout(() => toast('클럽 명단은 이제 클라우드에서 관리합니다. 앵그리랭킹의 "🔑 관리자 로그인"을 이용하세요.'), 300);
         }
       } catch (e) { /* 키가 달라 해독 실패 — 뷰어로만 표시 */ }
     }
@@ -354,7 +359,7 @@ async function tryUnlock(pw) {
     state.share = null;
     state.shareUnlocked = false;
     render();
-    toast('관리자 모드로 전환되었습니다. 명단·설정을 불러왔습니다.');
+    toast('관리자 모드로 전환되었습니다. (클럽 명단은 "🔑 관리자 로그인"으로 클라우드에서 불러옵니다)');
   } catch (e) {
     toast('비밀번호가 올바르지 않습니다.');
   }
@@ -383,7 +388,68 @@ function startCloudRanking() {
     try { localStorage.setItem(K_RESULTS_CACHE, JSON.stringify(results)); } catch (e) { /* 무시 */ }
     render();
   }).catch(() => { state.cloudError = '클라우드에 연결할 수 없습니다 (오프라인).'; });
-  authSubscribe((user) => { state.cloudUser = user; render(); }).catch(() => {});
+  authSubscribe((user) => {
+    const wasIn = !!state.cloudUser;
+    state.cloudUser = user;
+    if (user && !wasIn) startCloudRoster(); // 관리자 로그인 → 클럽 명단 동기화 시작
+    if (!user) stopCloudRoster();
+    render();
+  }).catch(() => {});
+}
+
+// ─── ☁ 클럽 명단 동기화 (관리자 전용) ───
+// 클라우드에 명단이 있으면 그것이 원본. 비어 있으면 이 기기 명단으로 최초 등록한다.
+// 배포용 단일 파일(file://)은 클라우드에 접근하지 않으므로 클럽 명단에 영향을 주지 못한다.
+let _rosterUnsub = null;
+let _rosterSynced = null; // 클라우드와 일치한다고 아는 마지막 명단 JSON (에코 푸시 방지)
+
+const rosterJson = (r) => JSON.stringify({
+  men: (r.men || []).map((m) => [m.id, m.name, !!m.guest, m.prefs || {}, m.presetExclude || []]),
+  women: (r.women || []).map((m) => [m.id, m.name, !!m.guest, m.prefs || {}, m.presetExclude || []]),
+});
+const rosterCount = (r) => ((r && r.men ? r.men.length : 0) + (r && r.women ? r.women.length : 0));
+
+function startCloudRoster() {
+  if (!liveEnabled() || _rosterUnsub) return;
+  rosterSubscribe((cloud, err) => {
+    if (err) { state.rosterCloudError = true; render(); return; }
+    state.rosterCloudError = false;
+    if (cloud && rosterCount(cloud) > 0) {
+      // 클라우드가 원본 — 이 기기와 다르면 채택
+      const next = { men: cloud.men || [], women: cloud.women || [] };
+      if (rosterJson(next) !== rosterJson(state.roster)) {
+        state.roster = next;
+        state.attend.selectedIds = state.attend.selectedIds.filter((id) => memberOf(id));
+        _rosterSynced = rosterJson(next);
+        persistAll();
+        toast(`클럽 명단을 클라우드에서 불러왔습니다 (${rosterCount(next)}명).`);
+        render();
+      } else {
+        _rosterSynced = rosterJson(next);
+      }
+    } else if (rosterCount(state.roster) > 0) {
+      // 클라우드가 비어 있음 → 이 기기 명단을 클럽 명단으로 최초 등록
+      cloudPushRoster(true);
+    }
+    state.rosterCloudReady = true;
+    render();
+  }).then((u) => { _rosterUnsub = u; }).catch(() => { state.rosterCloudError = true; });
+}
+
+function stopCloudRoster() {
+  try { _rosterUnsub && _rosterUnsub(); } catch (e) { /* 무시 */ }
+  _rosterUnsub = null;
+  _rosterSynced = null;
+  state.rosterCloudReady = false;
+}
+
+// 명단이 바뀌었을 때만 클라우드에 반영 (관리자 로그인 상태에서만)
+function cloudPushRoster(force = false) {
+  if (!liveEnabled() || !state.cloudUser) return;
+  const json = rosterJson(state.roster);
+  if (!force && json === _rosterSynced) return;
+  _rosterSynced = json;
+  rosterPut(state.roster).catch(() => { _rosterSynced = null; toast('클럽 명단 클라우드 저장 실패 — 인터넷 연결을 확인하세요.'); });
 }
 
 // 관리자면 결과를 클라우드에 반영 (로그인 전이면 조용히 로컬만 — 랭킹 카드에서 동기화 안내)
@@ -965,8 +1031,19 @@ function renderRoster() {
         ${col('women', '여자', 'wcol')}
       </div>
       <div class="hint">⚡게임선호 · 🔰신규회원 · 💞혼복선호 — 아이콘을 눌러 켜고 끕니다. 탈퇴/게스트 정리는 × 버튼.</div>
+      ${renderRosterCloudLine()}
     </details>
   </section>`;
+}
+
+// 명단이 어디에 저장되는지 한 줄로 알려준다 (클라우드 동기화 / 이 기기 전용)
+function renderRosterCloudLine() {
+  if (!cloudAvailable()) return ''; // 배포용 단일 파일: 클럽 얘기 없이 조용히 이 기기에만 저장
+  if (state.cloudUser) {
+    if (state.rosterCloudError) return '<div class="hint" style="color:#b45309">☁ 클럽 명단을 클라우드에서 불러오지 못했습니다 (권한·연결 확인) — 이 기기에만 저장됩니다.</div>';
+    return `<div class="hint">☁ <b>클럽 명단 클라우드 동기화 중</b> — 여기서 수정하면 관리자 기기 모두에 반영됩니다. (${esc(state.cloudUser.email || '')})</div>`;
+  }
+  return '<div class="hint">이 기기에만 저장됩니다. 클럽 공용 명단으로 관리하려면 🏆 앵그리랭킹에서 <b>🔑 관리자 로그인</b>을 하세요.</div>';
 }
 
 // ─── 🏆 앵그리랭킹 (앵그리대회 결과 누적 + 대회별 단일) ───
