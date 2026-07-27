@@ -2,7 +2,7 @@
 import { generateSchedule, validateSchedule, SchedulerError } from './engine/scheduler.js';
 import { buildPlan } from './engine/planner.js';
 import { pairKey } from './engine/validate.js';
-import { computeRanking, playerScoreLogs } from './engine/ranking.js';
+import { computeRanking, playerScoreLogs, resultDateMs } from './engine/ranking.js';
 import { liveConfigure, liveEnabled, liveCreate, liveGetEvent, liveSetScore, liveSubscribeScores, liveSubscribeEvent, liveFetchScores, liveDelete,
   authSubscribe, authSignIn, authSignOut, resultsSubscribe, resultsPut, resultsDelete } from './live.js';
 
@@ -95,7 +95,9 @@ const state = {
   showRealNames: false, // 앵그리대회: 대진표를 별칭(false) / 실명(true)으로 표시
   scoreMode: false, // 앵그리대회 결과(스코어) 입력 모드
   scores: {}, // 결과 입력 임시 버퍼: `${round}:${gi}` → {a, b}
-  rankFilter: 'all', // 앵그리랭킹: 'all'(전체 누적) | resultId(대회별 단일)
+  rankFilter: 'y1', // 앵그리랭킹 기간: 'y1'(지난 1년, 기본) | 'all'(전체) | 'Y2026'(연도) | resultId(대회별 단일)
+  rankBasis: 'total', // 랭킹 기준: 'total'(누적) | 'avg'(평균)
+  rankMinGames: 4, // 평균 기준일 때 최소 경기 수 (미달자는 순위 없이 아래 표시)
   ui: { roster: null, adv: null, exclude: null, ranking: null, advHelp: false }, // details 접힘 상태 (null = 자동) + 고급 설정 설명 표시
   share: null, // 공유 링크로 열었을 때의 페이로드
   viewerMode: false, // 'b'(대진표 보기) | 'r'(명단 수신 대기) | 'live'(실시간 대회) | false
@@ -403,6 +405,11 @@ async function cloudSyncLocal() {
   let ok = 0;
   for (const r of pending) { try { await resultsPut(r); ok++; } catch (e) { /* 계속 */ } }
   toast(ok === pending.length ? `${ok}건을 클라우드에 올렸습니다.` : `${ok}/${pending.length}건만 올라갔습니다. 다시 시도해 주세요.`);
+}
+
+// 결과 저장용 날짜 (YYYY-MM-DD) — 기간(지난 1년·연도별) 필터가 일관되게 동작하도록 ISO로 통일
+function fmtISODate(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 // 대진표 생성 시각 라벨 (예: 7/25 17:25)
@@ -965,13 +972,25 @@ function renderRoster() {
 function renderRanking() {
   const results = resultStore.all(); // 저장분 + 내장 과거 이력
   const open = state.ui.ranking === null ? false : state.ui.ranking;
-  // 필터: 전체 누적 또는 특정 대회. 삭제 등으로 사라진 필터는 전체로
-  if (state.rankFilter !== 'all' && !results.some((r) => r.id === state.rankFilter)) state.rankFilter = 'all';
-  const scoped = state.rankFilter === 'all' ? results : results.filter((r) => r.id === state.rankFilter);
-  const rows = computeRanking(scoped);
-  const medal = (rk) => (rk === 1 ? '🥇' : rk === 2 ? '🥈' : rk === 3 ? '🥉' : rk);
+  const years = [...new Set(results.map((r) => { const t = resultDateMs(r); return t ? new Date(t).getFullYear() : null; }).filter(Boolean))].sort((a, b) => b - a);
+  // 기간 필터 — 없어진 대상(삭제된 대회 등)은 기본값(지난 1년)으로
+  const f = state.rankFilter;
+  const known = f === 'y1' || f === 'all' || (/^Y(\d{4})$/.test(f) && years.includes(+f.slice(1))) || results.some((r) => r.id === f);
+  if (!known) state.rankFilter = 'y1';
+  const yearMatch = /^Y(\d{4})$/.exec(state.rankFilter);
+  const oneYearAgo = (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.getTime(); })();
+  const scoped = state.rankFilter === 'all'
+    ? results
+    : state.rankFilter === 'y1'
+      ? results.filter((r) => { const t = resultDateMs(r); return t == null || t >= oneYearAgo; }) // 날짜 불명은 포함
+      : yearMatch
+        ? results.filter((r) => { const t = resultDateMs(r); return t != null && new Date(t).getFullYear() === +yearMatch[1]; })
+        : results.filter((r) => r.id === state.rankFilter);
+  const avgBasis = state.rankBasis === 'avg';
+  const rows = computeRanking(scoped, { basis: state.rankBasis, minGames: avgBasis ? state.rankMinGames : 0 });
+  const medal = (rk) => (rk === 1 ? '🥇' : rk === 2 ? '🥈' : rk === 3 ? '🥉' : (rk == null ? '–' : rk));
   // 단일 대회 보기: 선수별 경기 스코어 로그 (예: 60 26 36 64, 이긴 게임 강조)
-  const single = state.rankFilter !== 'all' && scoped.length === 1;
+  const single = results.some((r) => r.id === state.rankFilter) && scoped.length === 1;
   const singleCap = single && Number.isFinite(+scoped[0].capGames) && +scoped[0].capGames > 0 ? +scoped[0].capGames : Infinity;
   const logByMember = {};
   if (single) {
@@ -991,23 +1010,36 @@ function renderRanking() {
     : '';
   const logCell = (mid) => gameLogCell(logByMember[mid]); // 공용 헬퍼 재사용
   const hasDraw = rows.some((r) => r.D > 0); // 무승부가 있으면 승-무-패로 표기
+  const pct = (v) => (v * 100).toFixed(1) + '%';
+  const sgn = (v) => (v > 0 ? '+' : '') + (Math.round(v * 100) / 100);
   const rankRows = rows
-    .map((r) => `<tr>
+    .map((r) => `<tr class="${r.rank == null ? 'unranked' : ''}">
       <td>${medal(r.rank)}</td>
       <td style="text-align:left;font-weight:700">${esc(r.name)}</td>
-      <td><b>${r.points}</b></td>
-      <td>${hasDraw ? `${r.W}-${r.D || 0}-${r.L}` : `${r.W}-${r.L}`}</td>
-      <td>${r.GF}</td>
-      <td>${r.GA}</td>
-      <td>${r.GD > 0 ? '+' : ''}${r.GD}</td>
+      ${avgBasis
+        ? `<td><b>${pct(r.winRate)}</b></td>
+           <td>${hasDraw ? `${r.W}-${r.D || 0}-${r.L}` : `${r.W}-${r.L}`}</td>
+           <td>${sgn(r.avgGD)}</td>
+           <td>${r.avgPoints.toFixed(2)}</td>
+           <td>${r.GD > 0 ? '+' : ''}${r.GD}</td>`
+        : `<td><b>${r.points}</b></td>
+           <td>${hasDraw ? `${r.W}-${r.D || 0}-${r.L}` : `${r.W}-${r.L}`}</td>
+           <td>${r.GF}</td>
+           <td>${r.GA}</td>
+           <td>${r.GD > 0 ? '+' : ''}${r.GD}</td>`}
       <td>${r.G}</td>
       ${single ? `<td class="gamelog">${logCell(r.memberId)}</td>` : ''}
     </tr>`)
     .join('');
-  // 필터 칩 (전체 누적 + 대회별)
+  // 기간 칩 (지난 1년 · 연도별 · 전체) + 기준 칩 (누적 · 평균) + 대회별 칩
   const chip = (val, label) => `<span class="vchip ${state.rankFilter === val ? 'on' : ''}" data-rankfilter="${val}">${esc(label)}</span>`;
+  const bchip = (val, label) => `<span class="vchip ${state.rankBasis === val ? 'on' : ''}" data-rankbasis="${val}">${esc(label)}</span>`;
+  const minOpts = [0, 2, 4, 8, 12].map((n) => `<option value="${n}" ${state.rankMinGames === n ? 'selected' : ''}>${n === 0 ? '제한 없음' : n + '경기 이상'}</option>`).join('');
   const filterChips = results.length
-    ? `<div class="vrow"><span class="hint-inline">보기:</span> ${chip('all', '전체 누적')}${results.map((r) => chip(r.id, `${r.date || ''} ${r.title || '앵그리대회'}`)).join('')}</div>`
+    ? `<div class="vrow"><span class="hint-inline">기간:</span> ${chip('y1', '지난 1년')}${years.map((y) => chip('Y' + y, y + '년')).join('')}${chip('all', '전체')}</div>
+       <div class="vrow"><span class="hint-inline">기준:</span> ${bchip('total', '누적')}${bchip('avg', '평균')}
+         ${avgBasis ? `<span class="hint-inline">최소</span> <select id="rank-mingames">${minOpts}</select>` : ''}</div>
+       <div class="vrow"><span class="hint-inline">대회별:</span> ${results.map((r) => chip(r.id, `${r.date || ''} ${r.title || '앵그리대회'}`)).join('')}</div>`
     : '';
   const inCloud = new Set((state.cloudResults || []).map((r) => r.id));
   const eventRows = results
@@ -1028,23 +1060,40 @@ function renderRanking() {
         ${delBtn}</div>`;
     })
     .join('');
-  const scopeLabel = state.rankFilter === 'all' ? '전체 누적 (연말 시상)' : ((scoped[0] && ((scoped[0].date || '') + ' ' + (scoped[0].title || '앵그리대회'))) + ' — 당일 시상');
+  // 기간 라벨 + 기준 설명
+  const periodLabel = state.rankFilter === 'all'
+    ? '전체 기간'
+    : state.rankFilter === 'y1'
+      ? '지난 1년 (최근 12개월)'
+      : yearMatch
+        ? `${yearMatch[1]}년 (연말 기준)`
+        : ((scoped[0] && ((scoped[0].date || '') + ' ' + (scoped[0].title || '앵그리대회'))) + ' — 당일 시상');
+  const basisLabel = avgBasis
+    ? `평균 기준 (승률 → 경기당 득실차)${state.rankMinGames ? ` · ${state.rankMinGames}경기 미만은 순위 제외` : ''}`
+    : '누적 기준 (승수 → 패 적은 순 → 득실차)';
+  const scopeLabel = `${periodLabel} · ${basisLabel} · 대회 ${scoped.length}개`;
+  const unranked = rows.filter((r) => r.rank == null).length;
   return `
   <section class="card no-print">
     <details data-uikey="ranking" ${open ? 'open' : ''}>
-      <summary class="secsum"><b>🏆 앵그리랭킹</b> <span class="hint-inline">— 승수 우선 · 득실차 · 득점 순</span></summary>
+      <summary class="secsum"><b>🏆 앵그리랭킹</b> <span class="hint-inline">— 기본: 지난 1년 · 누적 기준</span></summary>
       ${results.length ? filterChips : ''}
       ${rows.length
         ? `<div class="hint-inline" style="display:block;margin:6px 0">${esc(scopeLabel)}</div>
            ${capControl}
            <div class="table-scroll"><table class="detail-table rank-table">
-             <tr><th>순위</th><th style="text-align:left">이름</th><th>종합점수</th><th>${hasDraw ? '승-무-패' : '승-패'}</th><th>득</th><th>실</th><th>득실차</th><th>경기</th>${single ? '<th style="text-align:left">경기별(득실)</th>' : ''}</tr>
+             <tr><th>순위</th><th style="text-align:left">이름</th>${avgBasis
+               ? `<th>승률</th><th>${hasDraw ? '승-무-패' : '승-패'}</th><th>경기당 득실</th><th>경기당 점수</th><th>득실차</th>`
+               : `<th>종합점수</th><th>${hasDraw ? '승-무-패' : '승-패'}</th><th>득</th><th>실</th><th>득실차</th>`}<th>경기</th>${single ? '<th style="text-align:left">경기별(득실)</th>' : ''}</tr>
              ${rankRows}
            </table></div>
+           ${unranked ? `<div class="hint" style="margin-top:4px">${unranked}명은 ${state.rankMinGames}경기 미만이라 순위 없이(–) 아래에 표시했습니다.</div>` : ''}
            <div style="margin-top:10px"><b class="hint-inline">저장된 대회</b>${eventRows}
              <div class="hint" style="margin-top:4px">점수를 잘못 저장했다면: 위 대진표의 버전(V#)에서 해당 대회를 열고 <b>"📝 결과 입력"</b>으로 고친 뒤 <b>"이 대회 결과 저장"</b>을 다시 누르면 이 기록이 갱신됩니다. (또는 ×로 삭제)</div>
            </div>`
-        : '<div class="hint" style="margin-top:8px">아직 저장된 대회 결과가 없습니다. 앵그리대회 대진표에서 "📝 결과 입력"으로 스코어를 입력하고 저장하세요.</div>'}
+        : results.length
+          ? `<div class="hint" style="margin-top:8px">${esc(periodLabel)}에 해당하는 기록이 없습니다. 위 <b>기간</b>에서 다른 기간을 선택해 보세요.</div>`
+          : '<div class="hint" style="margin-top:8px">아직 저장된 대회 결과가 없습니다. 앵그리대회 대진표에서 "📝 결과 입력"으로 스코어를 입력하고 저장하세요.</div>'}
       ${renderCloudBar()}
       <div class="row" style="margin-top:10px">
         <button class="ghost mini2" id="rank-export">⬇ 백업 내보내기</button>
@@ -1488,6 +1537,11 @@ function bindRanking() {
   document.querySelectorAll('[data-rankfilter]').forEach((el) =>
     el.addEventListener('click', () => { state.rankFilter = el.dataset.rankfilter; render(); })
   );
+  document.querySelectorAll('[data-rankbasis]').forEach((el) =>
+    el.addEventListener('click', () => { state.rankBasis = el.dataset.rankbasis; render(); })
+  );
+  const minG = $('#rank-mingames');
+  if (minG) minG.addEventListener('change', () => { state.rankMinGames = +minG.value; render(); });
   const signin = $('#cloud-signin');
   if (signin) signin.addEventListener('click', async () => {
     try { await authSignIn(); } catch (e) { toast('로그인 실패: ' + (e && e.code ? e.code : '다시 시도해 주세요')); }
@@ -1976,7 +2030,7 @@ async function finalizeLiveEvent() {
   const id = (entry && entry.resultId) || uid();
   const prev = resultStore.get(id);
   const capGames = prev && Number.isFinite(+prev.capGames) ? prev.capGames : (entry && entry.config && entry.config.gamesPerPerson) || undefined;
-  resultStore.add({ id, date: new Date().toLocaleDateString('ko-KR'), mode: 'tournament', title: '앵그리대회', players, games, capGames });
+  resultStore.add({ id, date: fmtISODate(), mode: 'tournament', title: '앵그리대회', players, games, capGames });
   if (entry) { entry.resultId = id; entry.scores = entryScores; }
   persistAll();
   state.ui.ranking = true;
@@ -2090,7 +2144,7 @@ function saveTournamentResult() {
   const players = [...new Set(Object.values(assign).filter(Boolean))].map((mid) => ({ memberId: mid, name: (memberOf(mid) || {}).name || mid }));
   const entry = state.history[state.currentIdx];
   const id = (entry && entry.resultId) || uid();
-  const date = new Date().toLocaleDateString('ko-KR');
+  const date = fmtISODate();
   const prev = resultStore.get(id);
   const capGames = prev && Number.isFinite(+prev.capGames) ? prev.capGames : (entry && entry.config && entry.config.gamesPerPerson) || undefined;
   resultStore.add({ id, date, mode: 'tournament', title: '앵그리대회', players, games, capGames });

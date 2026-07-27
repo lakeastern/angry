@@ -46,7 +46,8 @@ export function playerScoreLogs(result) {
   return out;
 }
 
-export function computeRanking(results) {
+// opts: { basis: 'total'(기본) | 'avg', minGames: 평균 기준 최소 경기 수 }
+export function computeRanking(results, opts = {}) {
   const stat = new Map(); // memberId → { memberId, name, G, W, D, L, GF, GA }
   const ensure = (id, name) => {
     if (!stat.has(id)) stat.set(id, { memberId: id, name: name || id, G: 0, W: 0, D: 0, L: 0, GF: 0, GA: 0 });
@@ -67,27 +68,55 @@ export function computeRanking(results) {
     }
   }
 
+  const minGames = Number.isFinite(+opts.minGames) && +opts.minGames > 0 ? Math.floor(+opts.minGames) : 0;
   const rows = [...stat.values()].map((s) => ({
     ...s,
     GD: s.GF - s.GA,
     points: s.W * 3, // 종합점수(승점) — 표시용. 무승부는 종합점수엔 미반영(경기·득실·무로 기록, 순위는 승수 우선 후 득실차)
     winRate: s.G ? s.W / s.G : 0,
+    avgGD: s.G ? (s.GF - s.GA) / s.G : 0, // 경기당 평균 득실차
+    avgPoints: s.G ? (s.W * 3) / s.G : 0, // 경기당 평균 승점
+    qualified: s.G >= minGames, // 평균 기준의 최소 경기 수 충족 여부
   }));
 
-  rows.sort((x, y) =>
-    y.W - x.W || // 승수 절대 우선
-    x.L - y.L || // 같은 승수면 패가 적은 쪽(무가 많은 쪽)이 위 — 득실차보다 우선
-    y.GD - x.GD || // 득실차
-    y.GF - x.GF || // 같은 득실차면 득점 많은 쪽
-    y.winRate - x.winRate || // 승률
-    x.name.localeCompare(y.name, 'ko') // 이름
-  );
+  // 평균 기준: 참석 횟수와 무관하게 비교 — 승률 → 경기당 득실차 → 경기 수(많이 뛴 쪽) → 이름.
+  // 최소 경기 수(minGames) 미달자는 순위를 매기지 않고 뒤에 둔다.
+  const avg = opts.basis === 'avg';
+  rows.sort((x, y) => (avg
+    ? (y.qualified - x.qualified) ||
+      y.winRate - x.winRate ||
+      y.avgGD - x.avgGD ||
+      y.G - x.G ||
+      x.name.localeCompare(y.name, 'ko')
+    : y.W - x.W || // 승수 절대 우선
+      x.L - y.L || // 같은 승수면 패가 적은 쪽(무가 많은 쪽)이 위 — 득실차보다 우선
+      y.GD - x.GD || // 득실차
+      y.GF - x.GF || // 같은 득실차면 득점 많은 쪽
+      y.winRate - x.winRate || // 승률
+      x.name.localeCompare(y.name, 'ko') // 이름
+  ));
 
-  let rank = 0, prevKey = null;
-  rows.forEach((r, i) => {
-    const key = r.W + '/' + r.L + '/' + r.GD + '/' + r.GF + '/' + r.winRate.toFixed(4);
-    if (key !== prevKey) { rank = i + 1; prevKey = key; } // 동률은 같은 순위
+  let rank = 0, prevKey = null, n = 0;
+  rows.forEach((r) => {
+    if (avg && !r.qualified) { r.rank = null; return; } // 최소 경기 미달 → 순위 없음
+    n++;
+    const key = avg
+      ? r.winRate.toFixed(6) + '/' + r.avgGD.toFixed(6) + '/' + r.G
+      : r.W + '/' + r.L + '/' + r.GD + '/' + r.GF + '/' + r.winRate.toFixed(4);
+    if (key !== prevKey) { rank = n; prevKey = key; } // 동률은 같은 순위
     r.rank = rank;
   });
   return rows;
+}
+
+// 결과의 날짜 → 시각(ms). 저장 형식이 섞여 있어(ISO 'YYYY-MM-DD', ko-KR '2026. 7. 22.') 둘 다 처리.
+export function resultDateMs(result) {
+  const s = String((result && result.date) || '').trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]).getTime();
+  m = s.match(/^(\d{4})\D+(\d{1,2})\D+(\d{1,2})/); // '2026. 7. 22.' / '2026/7/22'
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]).getTime();
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : null;
 }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeRanking } from '../engine/ranking.js';
+import { computeRanking, resultDateMs } from '../engine/ranking.js';
 
 // 게임 헬퍼: 팀A(2명) vs 팀B(2명), 스코어
 const g = (teamA, teamB, scoreA, scoreB) => ({ round: 0, court: 'a', teamA, teamB, scoreA, scoreB });
@@ -152,6 +152,65 @@ test('capGames — 라운드 순서대로 앞선 게임을 센다(입력 순서 
   const rows = computeRanking([{ id: 'r1', players, games, capGames: 1 }]);
   const A = rows.find((r) => r.memberId === 'A');
   assert.equal(A.G, 1); assert.equal(A.W, 1, 'R0(승)이 앞선 게임');
+});
+
+test('평균 기준 — 적게 뛰고 승률 높은 사람이 누적 1위보다 위', () => {
+  // 많이: 4경기 3승1패(75%) / 완승: 2경기 2승(100%). 나머지는 1경기씩만 뛰어 누적 승수가 적다.
+  const games = [
+    { round: 0, court: 'a', teamA: ['많이', 'a1'], teamB: ['b1', 'b2'], scoreA: 6, scoreB: 1 },
+    { round: 1, court: 'a', teamA: ['많이', 'a2'], teamB: ['b3', 'b4'], scoreA: 6, scoreB: 1 },
+    { round: 2, court: 'a', teamA: ['많이', 'a3'], teamB: ['b5', 'b6'], scoreA: 6, scoreB: 1 },
+    { round: 3, court: 'a', teamA: ['많이', 'a4'], teamB: ['b7', 'b8'], scoreA: 1, scoreB: 6 },
+    { round: 4, court: 'a', teamA: ['완승', 'c1'], teamB: ['d1', 'd2'], scoreA: 6, scoreB: 0 },
+    { round: 5, court: 'a', teamA: ['완승', 'c2'], teamB: ['d3', 'd4'], scoreA: 6, scoreB: 0 },
+  ];
+  const ids = [...new Set(games.flatMap((g) => [...g.teamA, ...g.teamB]))];
+  const players = ids.map((id) => ({ memberId: id, name: id }));
+  const total = computeRanking([{ id: 'r1', players, games }]);
+  const avg = computeRanking([{ id: 'r1', players, games }], { basis: 'avg', minGames: 2 });
+  assert.equal(total[0].name, '많이', '누적 기준 1위는 3승한 많이');
+  assert.equal(avg[0].name, '완승', '평균 기준 1위는 승률 100%인 완승');
+  assert.equal(avg[0].winRate, 1);
+  const many = avg.find((r) => r.name === '많이');
+  assert.equal(many.winRate, 0.75);
+  assert.equal(many.rank, 2, '평균 기준에서 많이는 2위');
+  // 1경기만 뛴 인원은 최소 경기(2) 미달 → 순위 없음
+  assert.ok(avg.filter((r) => r.G === 1).every((r) => r.rank === null));
+});
+
+test('평균 기준 — 최소 경기 미달자는 순위 없음(rank null)', () => {
+  const ppl = ['A', 'B', 'C', 'D'].map((id) => ({ memberId: id, name: id }));
+  const rows = computeRanking([{
+    id: 'r1', players: ppl,
+    games: [{ round: 0, court: 'a', teamA: ['A', 'B'], teamB: ['C', 'D'], scoreA: 6, scoreB: 0 }],
+  }], { basis: 'avg', minGames: 4 });
+  assert.ok(rows.every((r) => r.rank === null), '1경기뿐이므로 전원 순위 없음');
+  assert.ok(rows.every((r) => r.qualified === false));
+});
+
+test('평균 기준 — 경기당 득실차·평균 승점 계산', () => {
+  const ppl = ['A', 'B', 'C', 'D'].map((id) => ({ memberId: id, name: id }));
+  const rows = computeRanking([{
+    id: 'r1', players: ppl,
+    games: [
+      { round: 0, court: 'a', teamA: ['A', 'B'], teamB: ['C', 'D'], scoreA: 6, scoreB: 2 },
+      { round: 1, court: 'a', teamA: ['A', 'B'], teamB: ['C', 'D'], scoreA: 2, scoreB: 6 },
+    ],
+  }], { basis: 'avg', minGames: 2 });
+  const A = rows.find((r) => r.memberId === 'A');
+  assert.equal(A.G, 2); assert.equal(A.W, 1); assert.equal(A.GD, 0);
+  assert.equal(A.avgGD, 0); assert.equal(A.avgPoints, 1.5); assert.equal(A.winRate, 0.5);
+});
+
+test('resultDateMs — ISO·ko-KR 두 저장 형식 모두 파싱', () => {
+  const iso = resultDateMs({ date: '2026-06-28' });
+  const ko = resultDateMs({ date: '2026. 6. 28.' });
+  assert.equal(new Date(iso).getFullYear(), 2026);
+  assert.equal(new Date(iso).getMonth(), 5);
+  assert.equal(new Date(iso).getDate(), 28);
+  assert.equal(iso, ko, 'ISO와 ko-KR 표기가 같은 날짜로 파싱');
+  assert.equal(resultDateMs({}), null);
+  assert.equal(resultDateMs({ date: '' }), null);
 });
 
 test('동률(승수·득실·득점·승률 동일)은 같은 순위', () => {
