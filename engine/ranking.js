@@ -1,11 +1,50 @@
 // 앵그리랭킹 집계 — 순수 함수 (저장·UI와 분리, 테스트 가능)
 //
-// 결과(result) 형식:
-//   { id, date, mode, players: [{ memberId, name }],
-//     games: [{ round, court, teamA:[memberId,memberId], teamB:[...], scoreA, scoreB }] }
+// 결과(result)는 두 형식을 지원한다.
+//  ① 게임 기반(앱에서 생성·입력한 대회):
+//     { id, date, mode, players: [{ memberId, name }],
+//       games: [{ round, court, teamA:[memberId,memberId], teamB:[...], scoreA, scoreB }] }
+//  ② 선수별 스코어(과거 이력 이관 — 팀 구성 정보가 없는 기록):
+//     { id, date, mode:'legacy', playerGames: [{ memberId?, name, scores: [[내점수, 상대점수], ...] }] }
 //
 // 멤버별 누적 후 랭킹 정렬(사전식): 승수 W desc → 패 L asc(적을수록 위) → 득실차 GD desc → 득점 GF desc → 승률 desc → 이름
 // (승이 많은 사람은 항상 상위; 같은 승수면 패가 적은=무가 많은 사람이 득실차와 무관하게 위). 동점(무승부)은 경기·득실에 포함.
+
+// 유효 스코어 판별 — Number(null)===0 이므로 반드시 원값으로 먼저 걸러낸다.
+const validScore = (v) => !(v == null || v === '') && Number.isFinite(Number(v));
+
+// 결과 → 선수별 경기 스코어 로그 { key: { name, scores:[{my,opp}, ...] } } (두 형식 공통, 경기 순서 유지)
+export function playerScoreLogs(result) {
+  const out = new Map();
+  const push = (key, name, my, opp) => {
+    if (!out.has(key)) out.set(key, { name: name || key, scores: [] });
+    const e = out.get(key);
+    if (name) e.name = name;
+    e.scores.push({ my: Number(my), opp: Number(opp) });
+  };
+  if (Array.isArray(result && result.playerGames)) {
+    for (const p of result.playerGames) {
+      const key = p.memberId || `n:${p.name}`;
+      for (const s of p.scores || []) {
+        const [my, opp] = Array.isArray(s) ? s : [s.my, s.opp];
+        if (validScore(my) && validScore(opp)) push(key, p.name, my, opp);
+      }
+    }
+    return out;
+  }
+  const nameOf = new Map(((result && result.players) || []).map((p) => [p.memberId, p.name]));
+  // 라운드→코트 순으로 정렬해 "앞선 게임"의 기준을 명확히
+  const games = [...((result && result.games) || [])].sort((x, y) =>
+    (Number(x.round) || 0) - (Number(y.round) || 0) || String(x.court || '').localeCompare(String(y.court || ''))
+  );
+  for (const g of games) {
+    if (!validScore(g.scoreA) || !validScore(g.scoreB)) continue; // 미입력만 제외 (동점=무승부는 집계)
+    const a = Number(g.scoreA), b = Number(g.scoreB);
+    for (const id of (g.teamA || []).filter(Boolean)) push(id, nameOf.get(id), a, b);
+    for (const id of (g.teamB || []).filter(Boolean)) push(id, nameOf.get(id), b, a);
+  }
+  return out;
+}
 
 export function computeRanking(results) {
   const stat = new Map(); // memberId → { memberId, name, G, W, D, L, GF, GA }
@@ -17,32 +56,14 @@ export function computeRanking(results) {
   };
 
   for (const r of results || []) {
-    const nameOf = new Map((r.players || []).map((p) => [p.memberId, p.name]));
     // 점수 반영 인당 게임 수 상한 (capGames): 각 선수의 앞선 N게임까지만 집계. 없으면 전부.
     const cap = Number.isFinite(+r.capGames) && +r.capGames > 0 ? +r.capGames : Infinity;
-    const counted = new Map(); // memberId → 이 대회에서 지금까지 집계된 게임 수
-    // 라운드→코트 순으로 정렬해 "앞선 게임"의 기준을 명확히
-    const games = [...(r.games || [])].sort((x, y) =>
-      (Number(x.round) || 0) - (Number(y.round) || 0) || String(x.court || '').localeCompare(String(y.court || ''))
-    );
-    for (const g of games) {
-      // 미입력(null·undefined·빈값)은 제외. Number(null)===0 이므로 반드시 원값으로 먼저 판별.
-      if (g.scoreA == null || g.scoreB == null || g.scoreA === '' || g.scoreB === '') continue;
-      const a = Number(g.scoreA);
-      const b = Number(g.scoreB);
-      if (!Number.isFinite(a) || !Number.isFinite(b)) continue; // 동점=무승부는 집계
-      const teamA = (g.teamA || []).filter(Boolean);
-      const teamB = (g.teamB || []).filter(Boolean);
-      const outcome = a > b ? 'W' : (b > a ? 'L' : 'D'); // 팀A 기준 결과
-      const take = (id, gf, ga, oc) => {
-        if ((counted.get(id) || 0) >= cap) return; // 상한 초과분은 점수에 반영하지 않음
-        counted.set(id, (counted.get(id) || 0) + 1);
-        const s = ensure(id, nameOf.get(id));
-        s.G++; s.GF += gf; s.GA += ga;
-        if (oc === 'W') s.W++; else if (oc === 'L') s.L++; else s.D++;
-      };
-      for (const id of teamA) take(id, a, b, outcome);
-      for (const id of teamB) take(id, b, a, outcome === 'W' ? 'L' : outcome === 'L' ? 'W' : 'D');
+    for (const [id, entry] of playerScoreLogs(r)) {
+      const s = ensure(id, entry.name);
+      for (const { my, opp } of entry.scores.slice(0, cap === Infinity ? undefined : cap)) {
+        s.G++; s.GF += my; s.GA += opp;
+        if (my > opp) s.W++; else if (my < opp) s.L++; else s.D++;
+      }
     }
   }
 

@@ -180,6 +180,8 @@
   .live-bar b { color: #dc2626; }
   .live-return { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .live-progress { margin-top: 10px; padding: 10px 12px; border: 1px solid #fecaca; background: #fff7f7; border-radius: 8px; }
+  /* 클라우드 랭킹 상태 줄 */
+  .cloudbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; padding: 8px 10px; border: 1px solid #bae6fd; background: #f0f9ff; border-radius: 8px; font-size: 0.88rem; }
   .mini2.primary, button.primary.mini2 { padding: 6px 12px; font-size: 0.85rem; }
 
   /* 앵그리랭킹 저장 대회 목록 */
@@ -216,7 +218,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-25 07:19</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-27 21:53</span></div>
 <div id="toast"></div>
 <script>
 'use strict';
@@ -1769,12 +1771,51 @@ function generateSchedule(config) {
 // ─── engine/ranking.js ───
 // 앵그리랭킹 집계 — 순수 함수 (저장·UI와 분리, 테스트 가능)
 //
-// 결과(result) 형식:
-//   { id, date, mode, players: [{ memberId, name }],
-//     games: [{ round, court, teamA:[memberId,memberId], teamB:[...], scoreA, scoreB }] }
+// 결과(result)는 두 형식을 지원한다.
+//  ① 게임 기반(앱에서 생성·입력한 대회):
+//     { id, date, mode, players: [{ memberId, name }],
+//       games: [{ round, court, teamA:[memberId,memberId], teamB:[...], scoreA, scoreB }] }
+//  ② 선수별 스코어(과거 이력 이관 — 팀 구성 정보가 없는 기록):
+//     { id, date, mode:'legacy', playerGames: [{ memberId?, name, scores: [[내점수, 상대점수], ...] }] }
 //
 // 멤버별 누적 후 랭킹 정렬(사전식): 승수 W desc → 패 L asc(적을수록 위) → 득실차 GD desc → 득점 GF desc → 승률 desc → 이름
 // (승이 많은 사람은 항상 상위; 같은 승수면 패가 적은=무가 많은 사람이 득실차와 무관하게 위). 동점(무승부)은 경기·득실에 포함.
+
+// 유효 스코어 판별 — Number(null)===0 이므로 반드시 원값으로 먼저 걸러낸다.
+const validScore = (v) => !(v == null || v === '') && Number.isFinite(Number(v));
+
+// 결과 → 선수별 경기 스코어 로그 { key: { name, scores:[{my,opp}, ...] } } (두 형식 공통, 경기 순서 유지)
+function playerScoreLogs(result) {
+  const out = new Map();
+  const push = (key, name, my, opp) => {
+    if (!out.has(key)) out.set(key, { name: name || key, scores: [] });
+    const e = out.get(key);
+    if (name) e.name = name;
+    e.scores.push({ my: Number(my), opp: Number(opp) });
+  };
+  if (Array.isArray(result && result.playerGames)) {
+    for (const p of result.playerGames) {
+      const key = p.memberId || `n:${p.name}`;
+      for (const s of p.scores || []) {
+        const [my, opp] = Array.isArray(s) ? s : [s.my, s.opp];
+        if (validScore(my) && validScore(opp)) push(key, p.name, my, opp);
+      }
+    }
+    return out;
+  }
+  const nameOf = new Map(((result && result.players) || []).map((p) => [p.memberId, p.name]));
+  // 라운드→코트 순으로 정렬해 "앞선 게임"의 기준을 명확히
+  const games = [...((result && result.games) || [])].sort((x, y) =>
+    (Number(x.round) || 0) - (Number(y.round) || 0) || String(x.court || '').localeCompare(String(y.court || ''))
+  );
+  for (const g of games) {
+    if (!validScore(g.scoreA) || !validScore(g.scoreB)) continue; // 미입력만 제외 (동점=무승부는 집계)
+    const a = Number(g.scoreA), b = Number(g.scoreB);
+    for (const id of (g.teamA || []).filter(Boolean)) push(id, nameOf.get(id), a, b);
+    for (const id of (g.teamB || []).filter(Boolean)) push(id, nameOf.get(id), b, a);
+  }
+  return out;
+}
 
 function computeRanking(results) {
   const stat = new Map(); // memberId → { memberId, name, G, W, D, L, GF, GA }
@@ -1786,32 +1827,14 @@ function computeRanking(results) {
   };
 
   for (const r of results || []) {
-    const nameOf = new Map((r.players || []).map((p) => [p.memberId, p.name]));
     // 점수 반영 인당 게임 수 상한 (capGames): 각 선수의 앞선 N게임까지만 집계. 없으면 전부.
     const cap = Number.isFinite(+r.capGames) && +r.capGames > 0 ? +r.capGames : Infinity;
-    const counted = new Map(); // memberId → 이 대회에서 지금까지 집계된 게임 수
-    // 라운드→코트 순으로 정렬해 "앞선 게임"의 기준을 명확히
-    const games = [...(r.games || [])].sort((x, y) =>
-      (Number(x.round) || 0) - (Number(y.round) || 0) || String(x.court || '').localeCompare(String(y.court || ''))
-    );
-    for (const g of games) {
-      // 미입력(null·undefined·빈값)은 제외. Number(null)===0 이므로 반드시 원값으로 먼저 판별.
-      if (g.scoreA == null || g.scoreB == null || g.scoreA === '' || g.scoreB === '') continue;
-      const a = Number(g.scoreA);
-      const b = Number(g.scoreB);
-      if (!Number.isFinite(a) || !Number.isFinite(b)) continue; // 동점=무승부는 집계
-      const teamA = (g.teamA || []).filter(Boolean);
-      const teamB = (g.teamB || []).filter(Boolean);
-      const outcome = a > b ? 'W' : (b > a ? 'L' : 'D'); // 팀A 기준 결과
-      const take = (id, gf, ga, oc) => {
-        if ((counted.get(id) || 0) >= cap) return; // 상한 초과분은 점수에 반영하지 않음
-        counted.set(id, (counted.get(id) || 0) + 1);
-        const s = ensure(id, nameOf.get(id));
-        s.G++; s.GF += gf; s.GA += ga;
-        if (oc === 'W') s.W++; else if (oc === 'L') s.L++; else s.D++;
-      };
-      for (const id of teamA) take(id, a, b, outcome);
-      for (const id of teamB) take(id, b, a, outcome === 'W' ? 'L' : outcome === 'L' ? 'W' : 'D');
+    for (const [id, entry] of playerScoreLogs(r)) {
+      const s = ensure(id, entry.name);
+      for (const { my, opp } of entry.scores.slice(0, cap === Infinity ? undefined : cap)) {
+        s.G++; s.GF += my; s.GA += opp;
+        if (my > opp) s.W++; else if (my < opp) s.L++; else s.D++;
+      }
     }
   }
 
@@ -1841,18 +1864,22 @@ function computeRanking(results) {
 }
 
 // ─── live.js ───
-// live.js — Firebase Firestore 실시간 대회(라이브 스코어) 계층.
+// live.js — Firebase 계층: ① 실시간 대회(라이브 스코어) ② 클라우드 앵그리랭킹 ③ 관리자 로그인.
 // 선택적 계층: firebaseConfig 미설정·오프라인·파일(file://) 열기 등으로 SDK 로드에 실패하면
 // 조용히 비활성화되고, 앱의 나머지 오프라인 기능은 그대로 동작한다.
 //
 // 데이터 모델:
-//   events/{id}            = { mode, title, date, status:'live', createdAt, bracket:{...} }
+//   events/{id}             = { mode, title, date, status:'live', createdAt, bracket(JSON문자열) }
 //   events/{id}/games/{gid} = { a, b, updatedAt }   (gid = `${round}_${court}`)
-// 링크(정확한 랜덤 문서 ID)를 아는 사람만 읽기·쓰기(보안 규칙). ID 추측/목록 조회는 차단.
+//     → 링크(정확한 랜덤 문서 ID)를 아는 사람만 읽기·쓰기. ID 추측/목록 조회는 차단.
+//   results/{id}            = 확정 대회 결과(앵그리랭킹 원본). 누구나 읽기, 관리자(Google 로그인)만 쓰기.
+//     games 형식은 그대로, 과거 이력의 playerGames[].scores는 Firestore가 중첩 배열을
+//     지원하지 않으므로 [{my,opp}] 맵 배열로 변환해 저장한다.
 
 const FB_VERSION = '10.14.1';
 let _cfg = null; // firebaseConfig
 let _ready = null; // Promise<{db, fs}>
+let _auth = null; // Promise<{auth, au}>
 
 function liveConfigure(config) {
   if (config && config.projectId) _cfg = config;
@@ -1871,10 +1898,92 @@ function fb() {
       const fs = await import(`https://www.gstatic.com/firebasejs/${FB_VERSION}/firebase-firestore.js`);
       const app = appMod.getApps && appMod.getApps().length ? appMod.getApp() : appMod.initializeApp(_cfg);
       const db = fs.getFirestore(app);
-      return { db, fs };
+      return { db, fs, app };
     })().catch((e) => { _ready = null; throw e; });
   }
   return _ready;
+}
+
+// ─── 관리자 로그인 (Google) — 랭킹 쓰기 권한 ───
+function fbAuth() {
+  if (!_auth) {
+    _auth = (async () => {
+      const { app } = await fb();
+      const au = await import(`https://www.gstatic.com/firebasejs/${FB_VERSION}/firebase-auth.js`);
+      const auth = au.getAuth(app);
+      return { auth, au };
+    })().catch((e) => { _auth = null; throw e; });
+  }
+  return _auth;
+}
+
+// 로그인 상태 변화 구독 → cb(user | null). 반환: unsubscribe
+async function authSubscribe(cb) {
+  const { auth, au } = await fbAuth();
+  return au.onAuthStateChanged(auth, (u) => cb(u ? { uid: u.uid, email: u.email, name: u.displayName } : null));
+}
+
+async function authSignIn() {
+  const { auth, au } = await fbAuth();
+  const provider = new au.GoogleAuthProvider();
+  try {
+    const res = await au.signInWithPopup(auth, provider);
+    return { uid: res.user.uid, email: res.user.email, name: res.user.displayName };
+  } catch (e) {
+    // 팝업 차단·모바일 인앱 브라우저 등 → 리다이렉트 방식으로 폴백
+    if (/popup|blocked|cancelled|operation-not-supported/i.test(String(e && (e.code || e.message)))) {
+      await au.signInWithRedirect(auth, provider);
+      return null; // 리다이렉트 후 복귀 시 authSubscribe가 알려준다
+    }
+    throw e;
+  }
+}
+
+async function authSignOut() {
+  const { auth, au } = await fbAuth();
+  await au.signOut(auth);
+}
+
+// ─── 클라우드 앵그리랭킹 (results 컬렉션) ───
+// Firestore는 배열 안의 배열을 지원하지 않으므로 scores [[my,opp]] ↔ [{my,opp}] 변환
+function resultToDoc(r) {
+  const doc = { ...r };
+  delete doc.id;
+  if (Array.isArray(r.playerGames)) {
+    doc.playerGames = r.playerGames.map((p) => ({
+      ...p,
+      scores: (p.scores || []).map((s) => (Array.isArray(s) ? { my: Number(s[0]), opp: Number(s[1]) } : { my: Number(s.my), opp: Number(s.opp) })),
+    }));
+  }
+  doc.updatedAt = Date.now();
+  return doc;
+}
+function docToResult(id, d) {
+  const r = { id, ...d };
+  if (Array.isArray(d.playerGames)) {
+    r.playerGames = d.playerGames.map((p) => ({ ...p, scores: (p.scores || []).map((s) => (Array.isArray(s) ? s : [s.my, s.opp])) }));
+  }
+  return r;
+}
+
+// 결과 실시간 구독 → cb(results[]). 반환: unsubscribe
+async function resultsSubscribe(cb) {
+  const { db, fs } = await fb();
+  return fs.onSnapshot(
+    fs.collection(db, 'results'),
+    (qs) => { const out = []; qs.forEach((d) => out.push(docToResult(d.id, d.data()))); cb(out); },
+    (err) => { console.warn('랭킹 구독 오류', err); cb(null, err); }
+  );
+}
+
+async function resultsPut(result) {
+  const { db, fs } = await fb();
+  await fs.setDoc(fs.doc(db, 'results', String(result.id)), resultToDoc(result));
+}
+
+async function resultsDelete(id) {
+  const { db, fs } = await fb();
+  await fs.deleteDoc(fs.doc(db, 'results', String(id)));
 }
 
 // 라이브 대회 생성 → 랜덤 문서 ID 반환
@@ -1970,17 +2079,50 @@ const K_SETTINGS = 'angry-settings-v2';
 const K_ATTEND = 'angry-attend-v2';
 const K_HISTORY = 'angry-history-v2';
 const K_RESULTS = 'angry-results-v2'; // 확정 대회 결과 누적
+const K_RESULTS_CACHE = 'angry-results-cloud-v1'; // 클라우드 랭킹 캐시 (오프라인 조회용)
 const K_KEY = 'angry-key-v2'; // 관리자 비밀번호에서 파생한 키 (SHA-256, base64url)
 const PUBLIC_URL = 'https://lakeastern.github.io/angry/';
 
-// 결과 저장 계층 (지금은 localStorage, Phase 2에서 동일 인터페이스로 Firestore 교체)
+// 결과 저장 계층 — 클라우드(Firestore)가 원본, localStorage는 캐시·오프라인 폴백.
+//  list()   이 기기에 저장/캐시된 결과
+//  all()    랭킹 집계·표시용 전체 (클라우드 로드분 우선, 같은 id는 클라우드 값)
 const resultStore = {
   list() { try { return JSON.parse(localStorage.getItem(K_RESULTS)) || []; } catch (e) { return []; } },
   _save(arr) { try { localStorage.setItem(K_RESULTS, JSON.stringify(arr)); } catch (e) { /* 무시 */ } },
-  add(entry) { const a = this.list(); const i = a.findIndex((r) => r.id === entry.id); if (i >= 0) a[i] = entry; else a.unshift(entry); this._save(a); },
-  remove(id) { this._save(this.list().filter((r) => r.id !== id)); },
-  get(id) { return this.list().find((r) => r.id === id) || null; },
+  add(entry) {
+    const a = this.list();
+    const i = a.findIndex((r) => r.id === entry.id);
+    if (i >= 0) a[i] = entry; else a.unshift(entry);
+    this._save(a);
+    cloudPushResult(entry); // 관리자 로그인 상태면 클라우드에도 반영
+  },
+  remove(id) { this._save(this.list().filter((r) => r.id !== id)); cloudRemoveResult(id); },
+  get(id) { return this.all().find((r) => r.id === id) || null; },
+  all() {
+    const byId = new Map();
+    for (const r of this.list()) byId.set(r.id, r);
+    for (const r of state.cloudResults || []) byId.set(r.id, r); // 클라우드 값 우선
+    return normalizeResults([...byId.values()].sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))));
+  },
 };
+
+// 선수별 스코어(과거 이력) 기록의 이름을 현재 명단의 멤버 ID로 이어붙여,
+// 새 대회 기록과 "같은 사람"으로 누적되게 한다 (명단에 없는 이름은 이름 키 유지).
+function normalizeResults(results) {
+  const byName = new Map();
+  [...state.roster.men, ...state.roster.women].forEach((m) => byName.set((m.name || '').trim(), m.id));
+  if (!byName.size) return results;
+  return results.map((r) => {
+    if (!Array.isArray(r.playerGames)) return r;
+    return {
+      ...r,
+      playerGames: r.playerGames.map((p) => {
+        const mid = byName.get((p.name || '').trim());
+        return mid && mid !== p.memberId ? { ...p, memberId: mid } : p;
+      }),
+    };
+  });
+}
 
 const state = {
   roster: { men: [], women: [] }, // {id, name, prefs:{gamePriority,newMember,mixedPreferred}, presetExclude:[], guest}
@@ -2017,6 +2159,9 @@ const state = {
   shareUnlocked: false, // 공유 링크를 관리자 키로 자동 해독했는지
   live: null, // 실시간 대회 뷰어: { id, event, scores:{gid:{a,b}}, unsub, saving }
   liveAdmin: null, // 관리자 화면의 진행 중 라이브 구독: { id, scores, unsub }
+  cloudUser: null, // 클라우드 로그인 사용자 { uid, email, name } | null
+  cloudResults: null, // 클라우드 랭킹 결과 (null = 아직 못 불러옴 → 로컬 캐시 사용)
+  cloudError: null, // 클라우드 연결 오류 메시지
   undoStack: [], // 수동 스왑 되돌리기용 rounds 스냅샷 (현재 버전 한정)
   redoStack: [],
 };
@@ -2277,6 +2422,44 @@ function estimatedRounds() {
   const auto = N >= 12 ? 3 : N >= 8 ? 2 : 1;
   const courts = Math.min(s.courts && s.courts >= 1 ? s.courts : auto, Math.max(1, Math.floor(N / 4))); // 코트 수 옵션 반영
   return Math.ceil(T / courts);
+}
+
+// ─── ☁ 클라우드 앵그리랭킹 (Firestore) ───
+// 랭킹 원본은 클라우드. 관리자(구글 로그인)만 쓰기, 멤버는 로그인 없이 조회.
+// 오프라인·미설정이면 이 기기 저장분(localStorage)으로 그대로 동작한다.
+function startCloudRanking() {
+  if (!liveEnabled()) return;
+  resultsSubscribe((results, err) => {
+    if (err) { state.cloudError = '클라우드 랭킹 연결 안 됨 (오프라인이거나 Firebase 설정 확인 필요) — 이 기기 기록만 표시합니다.'; render(); return; }
+    state.cloudError = null;
+    state.cloudResults = results;
+    // 오프라인 대비 캐시 — 다음에 인터넷이 없어도 최근 랭킹을 볼 수 있다
+    try { localStorage.setItem(K_RESULTS_CACHE, JSON.stringify(results)); } catch (e) { /* 무시 */ }
+    render();
+  }).catch(() => { state.cloudError = '클라우드에 연결할 수 없습니다 (오프라인).'; });
+  authSubscribe((user) => { state.cloudUser = user; render(); }).catch(() => {});
+}
+
+// 관리자면 결과를 클라우드에 반영 (로그인 전이면 조용히 로컬만 — 랭킹 카드에서 동기화 안내)
+function cloudPushResult(entry) {
+  if (!liveEnabled() || !state.cloudUser || !entry) return;
+  resultsPut(entry).catch(() => toast('클라우드 저장 실패 — 인터넷 연결을 확인하세요.'));
+}
+function cloudRemoveResult(id) {
+  if (!liveEnabled() || !state.cloudUser) return;
+  resultsDelete(id).catch(() => toast('클라우드 삭제 실패 — 인터넷 연결을 확인하세요.'));
+}
+
+// 이 기기에만 있는 결과(클라우드에 없는 것)를 한꺼번에 올린다
+async function cloudSyncLocal() {
+  if (!state.cloudUser) { toast('먼저 클라우드 로그인을 해주세요.'); return; }
+  const cloudIds = new Set((state.cloudResults || []).map((r) => r.id));
+  const pending = resultStore.list().filter((r) => !cloudIds.has(r.id));
+  if (!pending.length) { toast('클라우드와 이미 같습니다.'); return; }
+  toast(`${pending.length}건을 클라우드에 올리는 중…`);
+  let ok = 0;
+  for (const r of pending) { try { await resultsPut(r); ok++; } catch (e) { /* 계속 */ } }
+  toast(ok === pending.length ? `${ok}건을 클라우드에 올렸습니다.` : `${ok}/${pending.length}건만 올라갔습니다. 다시 시도해 주세요.`);
 }
 
 // 대진표 생성 시각 라벨 (예: 7/25 17:25)
@@ -2837,7 +3020,7 @@ function renderRoster() {
 
 // ─── 🏆 앵그리랭킹 (앵그리대회 결과 누적 + 대회별 단일) ───
 function renderRanking() {
-  const results = resultStore.list();
+  const results = resultStore.all(); // 저장분 + 내장 과거 이력
   const open = state.ui.ranking === null ? false : state.ui.ranking;
   // 필터: 전체 누적 또는 특정 대회. 삭제 등으로 사라진 필터는 전체로
   if (state.rankFilter !== 'all' && !results.some((r) => r.id === state.rankFilter)) state.rankFilter = 'all';
@@ -2849,19 +3032,13 @@ function renderRanking() {
   const singleCap = single && Number.isFinite(+scoped[0].capGames) && +scoped[0].capGames > 0 ? +scoped[0].capGames : Infinity;
   const logByMember = {};
   if (single) {
-    const cnt = {};
-    const sorted = [...(scoped[0].games || [])].sort((x, y) =>
-      (Number(x.round) || 0) - (Number(y.round) || 0) || String(x.court || '').localeCompare(String(y.court || '')));
-    for (const g of sorted) {
-      const a = +g.scoreA, b = +g.scoreB;
-      if (!Number.isFinite(a) || !Number.isFinite(b)) continue; // 미입력만 제외 (동점=무승부는 포함)
-      const push = (mid, my, opp) => { if ((cnt[mid] || 0) >= singleCap) return; cnt[mid] = (cnt[mid] || 0) + 1; (logByMember[mid] || (logByMember[mid] = [])).push({ my, opp }); };
-      (g.teamA || []).forEach((mid) => push(mid, a, b));
-      (g.teamB || []).forEach((mid) => push(mid, b, a));
+    // 게임 기반·선수별 스코어 두 형식 공통 헬퍼로 로그를 뽑고, 점수 반영 상한까지만 표시
+    for (const [mid, entry] of playerScoreLogs(scoped[0])) {
+      logByMember[mid] = entry.scores.slice(0, singleCap === Infinity ? undefined : singleCap);
     }
   }
   const curCap = single && Number.isFinite(+scoped[0].capGames) && +scoped[0].capGames > 0 ? +scoped[0].capGames : 0;
-  const capControl = single
+  const capControl = (single && Array.isArray(scoped[0].games)) // 선수별 스코어(과거 이력)는 상한 조절 대상 아님
     ? `<div class="row" style="margin:4px 0 8px;gap:6px;align-items:center"><span class="hint-inline">점수 반영 게임 수:</span>
         <select id="rank-cap" data-rid="${scoped[0].id}">
           <option value="0" ${curCap === 0 ? 'selected' : ''}>제한 없음(전부)</option>
@@ -2891,8 +3068,13 @@ function renderRanking() {
     : '';
   const eventRows = results
     .map((r) => {
-      const gc = (r.games || []).filter((g) => Number.isFinite(+g.scoreA) && Number.isFinite(+g.scoreB)).length;
-      return `<div class="evrow"><span>${esc(r.date || '')} · ${esc(r.title || '앵그리대회')} <span class="hint-inline">(${r.players ? r.players.length : 0}명 · ${gc}게임)</span></span>
+      // 게임 기반은 게임 수, 선수별 스코어(과거 이력)는 참가기록 수로 표기
+      const logs = playerScoreLogs(r);
+      const people = logs.size;
+      const gc = r.playerGames
+        ? [...logs.values()].reduce((a, e) => a + e.scores.length, 0) / 4 // 4인 1게임 환산
+        : (r.games || []).filter((g) => Number.isFinite(+g.scoreA) && Number.isFinite(+g.scoreB)).length;
+      return `<div class="evrow"><span>${esc(r.date || '')} · ${esc(r.title || '앵그리대회')} <span class="hint-inline">(${people}명 · ${Math.round(gc)}게임${r.playerGames ? ' · 과거 이력' : ''})</span></span>
         <button class="mini del" data-delresult="${r.id}" title="이 대회 결과 삭제">×</button></div>`;
     })
     .join('');
@@ -2913,14 +3095,34 @@ function renderRanking() {
              <div class="hint" style="margin-top:4px">점수를 잘못 저장했다면: 위 대진표의 버전(V#)에서 해당 대회를 열고 <b>"📝 결과 입력"</b>으로 고친 뒤 <b>"이 대회 결과 저장"</b>을 다시 누르면 이 기록이 갱신됩니다. (또는 ×로 삭제)</div>
            </div>`
         : '<div class="hint" style="margin-top:8px">아직 저장된 대회 결과가 없습니다. 앵그리대회 대진표에서 "📝 결과 입력"으로 스코어를 입력하고 저장하세요.</div>'}
+      ${renderCloudBar()}
       <div class="row" style="margin-top:10px">
         <button class="ghost mini2" id="rank-export">⬇ 백업 내보내기</button>
         <button class="ghost mini2" id="rank-import">⬆ 가져오기</button>
         <input type="file" id="rank-import-file" accept="application/json" style="display:none">
       </div>
-      <div class="hint">Firebase 실시간 공유는 다음 단계에서 추가됩니다. 지금은 이 기기에 누적되며, 백업 파일로 옮길 수 있습니다.</div>
     </details>
   </section>`;
+}
+
+// 클라우드 상태 줄 — 멤버는 "실시간 공유 중" 안내만, 관리자는 로그인·동기화 버튼
+function renderCloudBar() {
+  if (!liveEnabled()) return '<div class="hint">클라우드 미설정 — 이 기기에만 누적됩니다.</div>';
+  const cloudCount = (state.cloudResults || []).length;
+  const cloudIds = new Set((state.cloudResults || []).map((r) => r.id));
+  const pending = resultStore.list().filter((r) => !cloudIds.has(r.id)).length;
+  if (state.cloudUser) {
+    return `<div class="cloudbar">
+      <span>☁ <b>클라우드 연결됨</b> <span class="hint-inline">(관리자: ${esc(state.cloudUser.email || state.cloudUser.name || '')} · 대회 ${cloudCount}건)</span></span>
+      ${pending ? `<button class="ghost mini2" id="cloud-sync">☁ 이 기기 기록 ${pending}건 올리기</button>` : ''}
+      <button class="ghost mini2" id="cloud-signout">로그아웃</button>
+    </div>`;
+  }
+  return `<div class="cloudbar">
+    <span>☁ ${state.cloudError ? esc(state.cloudError) : `<b>클라우드 랭킹</b> <span class="hint-inline">(대회 ${cloudCount}건 · 멤버는 로그인 없이 조회)</span>`}</span>
+    <button class="ghost mini2" id="cloud-signin">🔑 관리자 로그인</button>
+    <span class="hint-inline">기록 저장·수정은 관리자 로그인 후 가능합니다.</span>
+  </div>`;
 }
 
 function renderSettings() {
@@ -3336,6 +3538,15 @@ function bindRanking() {
   document.querySelectorAll('[data-rankfilter]').forEach((el) =>
     el.addEventListener('click', () => { state.rankFilter = el.dataset.rankfilter; render(); })
   );
+  const signin = $('#cloud-signin');
+  if (signin) signin.addEventListener('click', async () => {
+    try { await authSignIn(); } catch (e) { toast('로그인 실패: ' + (e && e.code ? e.code : '다시 시도해 주세요')); }
+  });
+  const signout = $('#cloud-signout');
+  if (signout) signout.addEventListener('click', async () => { try { await authSignOut(); toast('로그아웃했습니다.'); } catch (e) { /* 무시 */ } });
+  const csync = $('#cloud-sync');
+  if (csync) csync.addEventListener('click', () => cloudSyncLocal());
+
   const cap = $('#rank-cap');
   if (cap) cap.addEventListener('change', () => {
     const r = resultStore.get(cap.dataset.rid);
@@ -3376,9 +3587,13 @@ function bindRanking() {
         if (!Array.isArray(arr)) throw new Error('형식 오류');
         const cur = resultStore.list();
         const byId = new Map(cur.map((r) => [r.id, r]));
-        arr.forEach((r) => { if (r && r.id) byId.set(r.id, r); }); // id 기준 병합(가져온 값 우선)
+        // 과거 이력(선수별 스코어)은 이름을 현재 명단 ID로 확정해 저장 — 모든 기기에서 같은 사람으로 누적
+        const incoming = normalizeResults(arr.filter((r) => r && r.id));
+        incoming.forEach((r) => byId.set(r.id, r)); // id 기준 병합(가져온 값 우선)
         resultStore._save([...byId.values()]);
-        toast(`결과 ${arr.length}건을 가져왔습니다.`);
+        // 관리자 로그인 상태면 클라우드에도 올린다 (멤버 모두에게 반영)
+        if (state.cloudUser) { for (const r of incoming) cloudPushResult(r); }
+        toast(`결과 ${incoming.length}건을 가져왔습니다.${state.cloudUser ? ' 클라우드에도 반영합니다.' : ' (클라우드 반영은 관리자 로그인 후 동기화)'}`);
         render();
       } catch (e) {
         toast('가져오기 실패: ' + e.message);
@@ -4248,6 +4463,9 @@ async function init() {
   state.history = load(K_HISTORY, []);
   // 명단에서 삭제된 인원이 참석 목록에 남아있지 않도록 정리
   state.attend.selectedIds = state.attend.selectedIds.filter((id) => memberOf(id));
+  // 클라우드 랭킹: 캐시를 먼저 띄우고(오프라인 대비) 실시간 구독으로 갱신
+  state.cloudResults = load(K_RESULTS_CACHE, null);
+  startCloudRanking();
   await handleShareHash();
   // 앱을 다시 열면 최근 대진표를 바로 보여준다
   if (!state.viewerMode && !state.result && state.history.length) {

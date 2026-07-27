@@ -117,5 +117,58 @@ test/            node --test (파일은 .mjs — 일부 윈도우 환경에서 �
 6. 저장된 대회는 개별 삭제 가능(랭킹 자동 재계산), **백업 내보내기/가져오기**(JSON)로 이동·복원
 7. **점수 반영 게임 수 상한**: 대회별 단일 보기에서 "점수 반영 게임 수"를 정하면 각 선수의 **앞선 N게임까지만** 순위에 반영됩니다. 인원×게임수가 4로 안 나눠떨어져 일부가 목표보다 1게임 더 한 경우(전원 최소 목표 게임 보장) 목표 게임 수까지만 반영하거나, 코트 시간이 부족해 게임 수가 제각각일 때 모두 같은 게임 수까지만 반영하는 데 씁니다. 기본값은 설정한 인당 게임 수.
 
-현재는 이 기기(경기이사)에 누적됩니다. **Firebase 실시간 공유는 다음 단계**에서 추가 예정
-(멤버들이 각자 기기에서 랭킹 조회). 게임데이 결과 집계도 추후 포함 가능.
+### 클라우드 랭킹 (Firebase)
+
+랭킹은 **Firestore가 원본**이라 멤버들이 각자 기기에서 앱 주소만 열어도 같은 누적 랭킹을 봅니다.
+
+- **조회**: 로그인 없이 누구나. 오프라인이면 마지막으로 받아둔 내용을 캐시로 보여줍니다.
+- **저장·수정·삭제**: 앵그리랭킹 카드의 **🔑 관리자 로그인**(Google, 기기당 1회)을 한 관리자만 가능. 로그인하면 결과 저장 시 자동으로 클라우드에 반영되고, 이 기기에만 있던 기록은 **☁ 올리기** 버튼으로 한 번에 동기화합니다.
+- 과거 대회 이력(엑셀 이관분)은 실명이 포함되므로 **공개 저장소에 넣지 않고 Firestore에만** 보관합니다. `⬆ 가져오기`로 시드 JSON을 한 번 넣으면 이후 클라우드에서 관리됩니다. 이때 선수 이름은 현재 명단의 멤버로 자동 연결되어 새 대회 기록과 합산됩니다.
+- 팀 구성 정보가 없는 과거 기록은 **선수별 스코어 형식**(`playerGames`)으로 저장되며, 순위·득실·경기별 로그가 동일하게 계산됩니다.
+
+**Firebase 콘솔 설정** (최초 1회): ① Authentication → Sign-in method → **Google 사용 설정**
+② Authentication → Settings → 승인된 도메인에 **`lakeastern.github.io`** 추가
+③ Firestore → 규칙에 아래를 게시(관리자 이메일을 본인 것으로):
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['관리자이메일@gmail.com'];
+    }
+    function isValidEvent(d) {
+      return d.keys().hasAll(['mode', 'status'])
+        && (d.mode == 'tournament' || d.mode == 'monthly')
+        && (d.status == 'live' || d.status == 'final')
+        && d.size() <= 40;
+    }
+    function isValidGame(d) {
+      return d.size() <= 12
+        && (!('a' in d) || (d.a is int && d.a >= 0 && d.a <= 99))
+        && (!('b' in d) || (d.b is int && d.b >= 0 && d.b <= 99));
+    }
+    // 실시간 대회(임시) — 링크(랜덤 ID)를 아는 사람만
+    match /events/{eventId} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if isValidEvent(request.resource.data);
+      allow delete: if true;
+      match /games/{gameId} {
+        allow read: if true;
+        allow create, update: if isValidGame(request.resource.data);
+        allow delete: if true;
+      }
+    }
+    // 앵그리랭킹(영구 기록) — 누구나 조회, 관리자만 쓰기
+    match /results/{resultId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}
+```
+
+게임데이 결과 집계도 추후 포함 가능.
