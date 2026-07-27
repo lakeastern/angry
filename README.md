@@ -137,7 +137,8 @@ service cloud.firestore {
     function isAdmin() {
       return request.auth != null
         && request.auth.token.email_verified == true
-        && request.auth.token.email in ['관리자이메일@gmail.com'];
+        // 관리자를 여럿 두려면 콤마로 나열 (실제 주소는 저장소에 남기지 않고 콘솔에만 입력)
+        && request.auth.token.email in ['관리자1@gmail.com', '관리자2@gmail.com'];
     }
     function isValidEvent(d) {
       return d.keys().hasAll(['mode', 'status'])
