@@ -3,7 +3,7 @@ import { generateSchedule, validateSchedule, SchedulerError } from './engine/sch
 import { buildPlan } from './engine/planner.js';
 import { pairKey } from './engine/validate.js';
 import { computeRanking, playerScoreLogs, resultDateMs } from './engine/ranking.js';
-import { liveConfigure, liveEnabled, liveCreate, liveGetEvent, liveSetScore, liveSubscribeScores, liveSubscribeEvent, liveFetchScores, liveDelete,
+import { liveConfigure, liveEnabled, cloudAvailable, liveCreate, liveGetEvent, liveSetScore, liveSubscribeScores, liveSubscribeEvent, liveFetchScores, liveDelete,
   authSubscribe, authSignIn, authSignOut, resultsSubscribe, resultsPut, resultsDelete } from './live.js';
 
 // Firebase 실시간 대회 설정 (공개 식별자 — 보안은 Firestore 규칙으로. 비밀 아님)
@@ -1123,6 +1123,14 @@ function renderRanking() {
 
 // 클라우드 상태 줄 — 멤버는 "실시간 공유 중" 안내만, 관리자는 로그인·동기화 버튼
 function renderCloudBar() {
+  // 단일 HTML 파일로 열었을 때: 클라우드(실시간 대회·공유 랭킹)는 온라인 주소에서만 동작
+  if (!cloudAvailable()) {
+    return `<div class="cloudbar">
+      <span>📄 <b>파일로 열림</b> — 이 기기에만 저장되고, 실시간 대회·클라우드 랭킹은 사용할 수 없습니다.</span>
+      <a class="ghost mini2" href="${PUBLIC_URL}" target="_blank" rel="noopener" style="text-decoration:none">🌐 온라인 앱으로 열기</a>
+      <span class="hint-inline">대진표 만들기·수동 조정·결과 입력·랭킹 보기는 그대로 됩니다. 기록은 "⬇ 백업 내보내기"로 옮길 수 있습니다.</span>
+    </div>`;
+  }
   if (!liveEnabled()) return '<div class="hint">클라우드 미설정 — 이 기기에만 누적됩니다.</div>';
   const cloudCount = (state.cloudResults || []).length;
   const cloudIds = new Set((state.cloudResults || []).map((r) => r.id));

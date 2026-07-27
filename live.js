@@ -19,8 +19,14 @@ export function liveConfigure(config) {
   if (config && config.projectId) _cfg = config;
 }
 
+// 파일(file://)로 열면 Firebase 인증·Firestore가 동작하지 않는다(승인된 도메인·오리진 없음).
+// 단일 HTML 배포본을 그냥 열어 쓰는 경우이므로, 클라우드 기능은 비활성으로 보고 안내만 한다.
+export function cloudAvailable() {
+  return typeof location !== 'undefined' && location.protocol !== 'file:';
+}
+
 export function liveEnabled() {
-  return !!_cfg;
+  return !!_cfg && cloudAvailable();
 }
 
 // Firebase SDK를 CDN에서 동적 로드 (번들/모듈 양쪽에서 동작, 오프라인이면 reject)
