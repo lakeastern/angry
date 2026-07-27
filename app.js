@@ -1123,12 +1123,11 @@ function renderRanking() {
 
 // 클라우드 상태 줄 — 멤버는 "실시간 공유 중" 안내만, 관리자는 로그인·동기화 버튼
 function renderCloudBar() {
-  // 단일 HTML 파일로 열었을 때: 클라우드(실시간 대회·공유 랭킹)는 온라인 주소에서만 동작
+  // 단일 HTML 파일로 열었을 때: 기록은 이 기기에만 남는다 (클라우드 기능은 자동 비활성)
   if (!cloudAvailable()) {
     return `<div class="cloudbar">
-      <span>📄 <b>파일로 열림</b> — 이 기기에만 저장되고, 실시간 대회·클라우드 랭킹은 사용할 수 없습니다.</span>
-      <a class="ghost mini2" href="${PUBLIC_URL}" target="_blank" rel="noopener" style="text-decoration:none">🌐 온라인 앱으로 열기</a>
-      <span class="hint-inline">대진표 만들기·수동 조정·결과 입력·랭킹 보기는 그대로 됩니다. 기록은 "⬇ 백업 내보내기"로 옮길 수 있습니다.</span>
+      <span>📄 <b>파일로 열림</b> — 대진표·결과 기록이 이 기기(브라우저)에만 저장됩니다.</span>
+      <span class="hint-inline">다른 기기로 옮기려면 "⬇ 백업 내보내기"로 파일을 저장해 두세요.</span>
     </div>`;
   }
   if (!liveEnabled()) return '<div class="hint">클라우드 미설정 — 이 기기에만 누적됩니다.</div>';
