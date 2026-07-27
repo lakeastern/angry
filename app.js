@@ -1009,6 +1009,7 @@ function renderRanking() {
   const filterChips = results.length
     ? `<div class="vrow"><span class="hint-inline">보기:</span> ${chip('all', '전체 누적')}${results.map((r) => chip(r.id, `${r.date || ''} ${r.title || '앵그리대회'}`)).join('')}</div>`
     : '';
+  const inCloud = new Set((state.cloudResults || []).map((r) => r.id));
   const eventRows = results
     .map((r) => {
       // 게임 기반은 게임 수, 선수별 스코어(과거 이력)는 참가기록 수로 표기
@@ -1017,8 +1018,14 @@ function renderRanking() {
       const gc = r.playerGames
         ? [...logs.values()].reduce((a, e) => a + e.scores.length, 0) / 4 // 4인 1게임 환산
         : (r.games || []).filter((g) => Number.isFinite(+g.scoreA) && Number.isFinite(+g.scoreB)).length;
-      return `<div class="evrow"><span>${esc(r.date || '')} · ${esc(r.title || '앵그리대회')} <span class="hint-inline">(${people}명 · ${Math.round(gc)}게임${r.playerGames ? ' · 과거 이력' : ''})</span></span>
-        <button class="mini del" data-delresult="${r.id}" title="이 대회 결과 삭제">×</button></div>`;
+      // 클라우드에 있는 기록은 관리자만 삭제 가능 (미로그인 상태에서 지우면 클라우드에서 다시 내려와 혼선)
+      const cloudOnly = inCloud.has(r.id);
+      const canDelete = !cloudOnly || !!state.cloudUser;
+      const delBtn = canDelete
+        ? `<button class="mini del" data-delresult="${r.id}" title="${cloudOnly ? '클라우드에서 완전 삭제 (모든 멤버 랭킹에서 빠짐)' : '이 기기 기록 삭제'}">×</button>`
+        : '<span class="hint-inline" title="관리자 로그인 후 삭제할 수 있습니다">🔒</span>';
+      return `<div class="evrow"><span>${esc(r.date || '')} · ${esc(r.title || '앵그리대회')} <span class="hint-inline">(${people}명 · ${Math.round(gc)}게임${r.playerGames ? ' · 과거 이력' : ''}${cloudOnly ? ' · ☁' : ''})</span></span>
+        ${delBtn}</div>`;
     })
     .join('');
   const scopeLabel = state.rankFilter === 'all' ? '전체 누적 (연말 시상)' : ((scoped[0] && ((scoped[0].date || '') + ' ' + (scoped[0].title || '앵그리대회'))) + ' — 당일 시상');
@@ -1503,14 +1510,20 @@ function bindRanking() {
     el.addEventListener('click', () => {
       const id = el.dataset.delresult;
       const r = resultStore.get(id);
-      if (!confirm(`${r ? (r.date || '') + ' ' : ''}대회 결과를 삭제할까요? 랭킹에서 빠집니다.`)) return;
+      const label = `${r ? (r.date || '') + ' ' + (r.title || '앵그리대회') : '이 대회'}`;
+      const isCloud = (state.cloudResults || []).some((x) => x.id === id);
+      const msg = isCloud
+        ? `${label} 결과를 삭제할까요?\n\n클라우드에서 완전히 삭제되어 모든 멤버의 랭킹에서 빠지고, 되돌릴 수 없습니다.\n(먼저 "⬇ 백업 내보내기"로 저장해 두는 것을 권합니다.)`
+        : `${label} 결과를 이 기기에서 삭제할까요? 랭킹에서 빠집니다.`;
+      if (!confirm(msg)) return;
       resultStore.remove(id);
       render();
     })
   );
   const exp = $('#rank-export');
   if (exp) exp.addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify(resultStore.list(), null, 2)], { type: 'application/json' });
+    // 클라우드 기록까지 포함해 내보낸다 (삭제 전 안전장치 역할)
+    const blob = new Blob([JSON.stringify(resultStore.all(), null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'angry-results-backup.json';
