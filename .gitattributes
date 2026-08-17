@@ -1,0 +1,2 @@
+# git 훅은 반드시 LF (CRLF 면 sh 가 "/bin/sh^M: bad interpreter" 로 실패)
+.githooks/* text eol=lf

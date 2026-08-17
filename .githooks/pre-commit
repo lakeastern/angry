@@ -1,0 +1,46 @@
+#!/bin/sh
+# 커밋 전 안전장치 2겹 — 이 저장소는 **공개(public)** 이므로 특히 중요하다.
+#   1) 위험 파일 차단 — 클럽 멤버 실명이 담긴 이력 원본 등 (.gitignore 는 이미 추적 중인 파일을 못 막는다)
+#   2) gitleaks — 개인키, Firebase 서비스계정 JSON, 각종 토큰
+# 우회가 필요하면: git commit --no-verify
+set -u
+
+RED=''; YEL=''; NC=''
+if [ -t 2 ]; then RED='\033[31m'; YEL='\033[33m'; NC='\033[0m'; fi
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+# ---- 1) 위험 파일 차단 ---------------------------------------------------
+risky=$(printf '%s\n' "$staged" | grep -Ei '^temp/|^legacy\.js$|angry-legacy-results\.json|serviceAccount.*\.json|(\.env|\.bak|\.db|\.sqlite3?)$')
+if [ -n "$risky" ]; then
+  printf "${RED}[pre-commit] 커밋 차단 — 위험 파일이 스테이징되었습니다:${NC}\n" >&2
+  printf '%s\n' "$risky" | sed 's/^/  - /' >&2
+  printf "\n이 저장소는 공개입니다. 멤버 실명 이력·서비스계정 키는 올리지 않습니다.\n" >&2
+  printf "해제: git restore --staged <파일>   (의도적이면 git commit --no-verify)\n" >&2
+  exit 1
+fi
+
+# ---- 2) gitleaks 비밀 스캔 -----------------------------------------------
+GITLEAKS=$(command -v gitleaks 2>/dev/null)
+if [ -z "$GITLEAKS" ]; then
+  for c in \
+    "$LOCALAPPDATA/Microsoft/WinGet/Packages/Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe/gitleaks.exe" \
+    "$HOME/AppData/Local/Microsoft/WinGet/Packages/Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe/gitleaks.exe"
+  do
+    [ -x "$c" ] && GITLEAKS="$c" && break
+  done
+fi
+
+if [ -z "$GITLEAKS" ]; then
+  printf "${YEL}[pre-commit] gitleaks 미설치 — 비밀 스캔을 건너뜁니다 (winget install Gitleaks.Gitleaks)${NC}\n" >&2
+  exit 0
+fi
+
+if ! "$GITLEAKS" git --staged --no-banner --redact; then
+  printf "\n${RED}[pre-commit] 커밋 차단 — 비밀정보로 보이는 값이 감지되었습니다.${NC}\n" >&2
+  printf "오탐이면 해당 줄에 '// gitleaks:allow' 주석을 달거나 .gitleaks.toml 에 예외를 추가하세요.\n" >&2
+  exit 1
+fi
+
+exit 0

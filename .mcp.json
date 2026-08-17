@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "context7": {
+      "command": "C:\\Program Files\\nodejs\\npx.cmd",
+      "args": ["-y", "@upstash/context7-mcp"]
+    },
+    "chrome-devtools": {
+      "command": "C:\\Program Files\\nodejs\\npx.cmd",
+      "args": ["-y", "chrome-devtools-mcp@latest"]
+    }
+  }
+}
