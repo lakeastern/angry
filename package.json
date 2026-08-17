@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
+    "test:e2e": "python test/e2e/run_e2e.py",
+    "test:e2e:dist": "python test/e2e/run_e2e.py --dist",
     "build": "node build.mjs"
   }
 }

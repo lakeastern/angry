@@ -5,3 +5,4 @@ node_modules/
 temp/
 legacy.js
 angry-legacy-results.json
+__pycache__/

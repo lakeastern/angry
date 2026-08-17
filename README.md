@@ -101,9 +101,26 @@
 순수 JavaScript(ESM), 빌드 도구·외부 의존성 없음. 개발에만 Node.js 18+ 필요.
 
 ```
-npm test        # 8~18명 남녀 전 조합 + 엣지 케이스 자동 검증 (139 tests)
-npm run build   # dist/앵그리대진표.html 단일 파일 생성
+npm test             # 엔진 단위 테스트 — 8~18명 남녀 전 조합 + 엣지 케이스 (471 tests)
+npm run test:e2e     # 브라우저 E2E — 실제로 렌더되고 클릭이 동작하는지 (8 시나리오)
+npm run test:e2e:dist  # 배포 번들(dist/) 을 같은 시나리오로 검증
+npm run build        # dist/앵그리대진표.html 단일 파일 생성
 ```
+
+E2E 는 Playwright(파이썬)를 쓴다. 최초 1회만 준비하면 된다:
+
+```
+pip install playwright && python -m playwright install chromium
+```
+
+단위 테스트가 **엔진 로직**을 본다면 E2E 는 **화면**을 본다. 엔진은 멀쩡한데 앱이
+죽는 종류의 사고 — 대표적으로 `build.mjs` 의 `ENGINE_FILES` 에 새 엔진 파일을 빠뜨려
+`computeRanking` 이 미정의가 되는 회귀 — 를 잡는 것이 목적이다.
+`npm run test:e2e:dist` 는 실제로 배포되는 번들을 검사하므로 배포 전에 돌리면 좋다.
+
+E2E 는 **Firebase 를 네트워크 레벨에서 차단**한 상태로 돌아간다. 운영 Firestore 의
+클럽 명단·경기 기록(실명)을 테스트가 읽지 않게 하고, 네트워크 상태에 결과가
+흔들리지 않게 하기 위한 것이다. 그래서 테스트 중 앱은 오프라인 모드로 동작한다.
 
 ```
 engine/
@@ -116,6 +133,7 @@ engine/
 app.js           웹 UI (index.html은 로컬 서버에서 모듈로 로드)
 build.mjs        엔진+UI를 단일 HTML로 번들
 test/            node --test (파일은 .mjs — 일부 윈도우 환경에서 한글 경로 .js 엔트리 크래시 회피)
+test/e2e/        Playwright 브라우저 E2E (파이썬, run_e2e.py 단독 실행 — 서버도 스스로 띄운다)
 ```
 
 ## 앵그리랭킹 (경기 결과·순위)
