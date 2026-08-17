@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --test *)",
+      "Bash(npm test)",
+      "Bash(npm run test:e2e)",
+      "Bash(npm run test:e2e:dist)",
+      "Bash(npm run build)",
+      "Bash(gitleaks *)",
+      "mcp__firebase__firebase_get_project",
+      "mcp__firebase__firebase_get_security_rules",
+      "mcp__firebase__firebase_get_sdk_config",
+      "mcp__firebase__firebase_get_environment",
+      "mcp__firebase__firebase_list_apps",
+      "mcp__firebase__firebase_list_projects",
+      "mcp__firebase__firebase_read_resources",
+      "mcp__firebase__firebase_deploy_status"
+    ],
+    "deny": [
+      "mcp__firebase__firebase_deploy",
+      "mcp__firebase__firebase_init",
+      "mcp__firebase__firebase_create_project",
+      "mcp__firebase__firebase_create_app",
+      "mcp__firebase__firebase_create_android_sha",
+      "mcp__firebase__firebase_update_environment",
+      "mcp__firebase__firebase_logout"
+    ]
+  }
+}

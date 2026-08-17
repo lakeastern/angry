@@ -7,6 +7,18 @@
     "chrome-devtools": {
       "command": "C:\\Program Files\\nodejs\\npx.cmd",
       "args": ["-y", "chrome-devtools-mcp@latest"]
+    },
+    "firebase": {
+      "command": "C:\\Program Files\\nodejs\\npx.cmd",
+      "args": [
+        "-y",
+        "firebase-tools@latest",
+        "experimental:mcp",
+        "--dir",
+        "c:\\Users\\lakea\\Documents\\현주\\angry",
+        "--only",
+        "core,firestore"
+      ]
     }
   }
 }
