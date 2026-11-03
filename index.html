@@ -34,6 +34,12 @@
   }
   .chip.m.on { background: var(--men-bg); border-color: var(--men); color: var(--men); font-weight: 700; }
   .chip.w.on { background: var(--women-bg); border-color: var(--women); color: var(--women); font-weight: 700; }
+  /* 참석자 길게 누르기 → 멤버 교체 모드 */
+  .chip { -webkit-touch-callout: none; -webkit-user-select: none; touch-action: manipulation; }
+  .chip.swapsrc { outline: 3px solid #f59e0b; outline-offset: 1px; animation: swappulse 1s ease-in-out infinite; }
+  .chip.swaptarget { border-style: dashed; }
+  @keyframes swappulse { 50% { outline-color: #fcd34d; } }
+  .swapbar { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 8px 10px; margin: 6px 0; font-size: 0.88rem; }
   .detail-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
   .detail-table th, .detail-table td { border-bottom: 1px solid #eee; padding: 5px 6px; text-align: center; }
   /* 랭킹 표: 컬럼폭은 내용(글씨)에 맞추고, 좁은 화면에서는 가로 스크롤로 넘겨 본다 */
@@ -220,7 +226,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-07-27 23:49</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-11-03 13:18</span></div>
 <div id="toast"></div>
 <script type="module" src="./app.js"></script>
 </body>

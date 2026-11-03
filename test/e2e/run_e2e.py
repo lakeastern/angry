@@ -298,6 +298,44 @@ def t_courts_option(app: App):
     check({s["games"] for s in stats} == {4}, f"전원 4게임이어야 함: {sorted({s['games'] for s in stats})}")
 
 
+@scenario("참석자 길게 누르기 — 대진표를 다시 짜지 않고 멤버 교체")
+def t_member_swap(app: App):
+    roster = seed_roster(7, 6)
+    ids = [f"tm{i}" for i in range(1, 7)] + [f"tw{i}" for i in range(1, 7)]  # 테스터남7 은 미참석
+    app.open(roster, attend={"selectedIds": ids, "excludeOverrides": {}},
+             settings={"meetingType": "monthly", "rounds": 4, "gamesPerPerson": 4})
+    app.generate()
+    page = app.page
+    text = lambda: page.locator("table.bracket").text_content()
+
+    def long_press(pid):
+        chip = page.locator(f'[data-att="{pid}"]')
+        chip.scroll_into_view_if_needed()
+        box = chip.bounding_box()
+        page.mouse.move(box["x"] + 5, box["y"] + 5)
+        page.mouse.down()
+        page.wait_for_timeout(700)
+        page.mouse.up()
+
+    before = text()
+    long_press("tm1")
+    check(page.locator(".swapbar").count() == 1, "길게 눌러도 교체 모드에 들어가지 않음")
+    check(page.locator('[data-att="tm1"].on').count() == 1, "길게 누르기가 참석 해제로 처리됨")
+    page.locator('[data-att="tm7"]').click()
+    after = text()
+    check("테스터남1" not in after and "테스터남7" in after, f"대진표에 교체가 반영되지 않음: {after[:120]}")
+    check(before.count("테스터남1") == after.count("테스터남7"), "교체된 멤버가 같은 자리 수를 이어받지 않음")
+
+    # 참석자끼리: 두 사람의 자리만 맞바뀐다
+    before = text()
+    long_press("tm2")
+    page.locator('[data-att="tm3"]').click()
+    swapped = before.replace("테스터남2", "#").replace("테스터남3", "테스터남2").replace("#", "테스터남3")
+    check(text() == swapped, "참석자끼리 교체 시 자리가 정확히 맞바뀌지 않음")
+    check(not app.error_banners(), f"교체 후 규칙 위반 배너: {app.error_banners()}")
+    check(not app.errors, f"런타임 에러 발생: {app.errors[:3]}")
+
+
 @scenario("자바스크립트 런타임 에러가 없다 (번들 누락 회귀 방지)")
 def t_no_js_errors(app: App):
     roster = seed_roster(6, 6)

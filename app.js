@@ -91,6 +91,7 @@ const state = {
   currentIdx: -1,
   result: null,
   swapSel: null, // {round, loc, id}
+  memberSwap: null, // 참석자 멤버 교체 모드: 길게 누른 참석자 id (다음에 누른 멤버와 맞바꿈)
   editingId: null,
   dragId: null,
   showRealNames: false, // 앵그리대회: 대진표를 별칭(false) / 실명(true)으로 표시
@@ -1304,7 +1305,8 @@ function renderSettings() {
 
 function renderAttendance() {
   const sel = state.attend.selectedIds;
-  const chip = (m, g) => `<span class="chip ${g} ${sel.includes(m.id) ? 'on' : ''}" data-att="${m.id}">${esc(m.name)}</span>`;
+  const src = state.memberSwap && sel.includes(state.memberSwap) ? state.memberSwap : null;
+  const chip = (m, g) => `<span class="chip ${g} ${sel.includes(m.id) ? 'on' : ''} ${src === m.id ? 'swapsrc' : ''} ${src && src !== m.id ? 'swaptarget' : ''}" data-att="${m.id}">${esc(m.name)}</span>`;
   const menChips = state.roster.men.map((m) => chip(m, 'm')).join('');
   const womenChips = state.roster.women.map((m) => chip(m, 'w')).join('');
   const selM = sel.filter((id) => genderOf(id) === 'M').length;
@@ -1338,7 +1340,10 @@ function renderAttendance() {
     <h2>③ 오늘 참석자 <span class="hint-inline">— 남 ${selM}명, 여 ${sel.length - selM}명, 총 ${sel.length}명</span></h2>
     ${state.roster.men.length + state.roster.women.length === 0
       ? '<div class="hint">먼저 ① 클럽 명단에 멤버를 추가하세요.</div>'
-      : `<div class="chips">${menChips}</div><div class="chips">${womenChips}</div>${detail}`}
+      : `${src
+        ? `<div class="swapbar">🔁 <b>${esc(nameOf(src))}</b> 와(과) 맞바꿀 멤버를 누르세요 — 미참석자를 누르면 그 사람이 대신 참석하고, 참석자를 누르면 서로 자리를 바꿉니다. 만든 대진표에도 그대로 반영됩니다. <button class="ghost mini2" id="mswap-cancel">취소</button></div>`
+        : '<div class="hint">참석자를 <b>길게 누르면</b>(PC는 우클릭) 다른 멤버와 맞바꿀 수 있습니다 — 대진표를 만든 뒤 멤버를 잘못 넣었을 때 다시 짜지 않고 교체하세요.</div>'}
+      <div class="chips">${menChips}</div><div class="chips">${womenChips}</div>${detail}`}
   </section>`;
 }
 
@@ -1906,16 +1911,61 @@ function bindSettings() {
   });
 }
 
+// 참석자 칩 길게 누르기(터치 ~0.5초) 또는 우클릭 → 멤버 교체 모드
+const LONG_PRESS_MS = 500;
+let suppressAttClick = false; // 길게 누르기 직후 따라오는 click 은 참석 토글로 처리하지 않는다
+
+function startMemberSwap(id) {
+  if (!state.attend.selectedIds.includes(id)) return; // 참석자만 교체 기준이 될 수 있다
+  state.memberSwap = id;
+  if (navigator.vibrate) try { navigator.vibrate(30); } catch (e) { /* 일부 브라우저 미지원 */ }
+  render();
+}
+
 function bindAttendance() {
-  document.querySelectorAll('[data-att]').forEach((el) =>
+  document.querySelectorAll('[data-att]').forEach((el) => {
+    const id = el.dataset.att;
+    let timer = null;
+    let start = null;
+    const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    el.addEventListener('pointerdown', (e) => {
+      suppressAttClick = false;
+      if (e.button !== undefined && e.button !== 0) return;
+      start = { x: e.clientX, y: e.clientY };
+      cancel();
+      timer = setTimeout(() => {
+        timer = null;
+        suppressAttClick = true;
+        startMemberSwap(id);
+      }, LONG_PRESS_MS);
+    });
+    el.addEventListener('pointermove', (e) => {
+      // 스크롤하려고 손가락을 움직이면 길게 누르기 취소
+      if (timer && start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) cancel();
+    });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => el.addEventListener(ev, cancel));
+    el.addEventListener('contextmenu', (e) => {
+      // 모바일 길게 누르기 메뉴 차단 + PC 우클릭으로도 교체 모드 진입
+      e.preventDefault();
+      if (!state.memberSwap && !suppressAttClick) startMemberSwap(id);
+    });
     el.addEventListener('click', () => {
-      const id = el.dataset.att;
+      if (suppressAttClick) { suppressAttClick = false; return; }
+      if (state.memberSwap) {
+        const src = state.memberSwap;
+        state.memberSwap = null;
+        if (src !== id) swapMembers(src, id);
+        else render(); // 같은 칩을 다시 누르면 취소
+        return;
+      }
       const sel = state.attend.selectedIds;
       state.attend.selectedIds = sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id];
       persistAll();
       render();
-    })
-  );
+    });
+  });
+  const mswapCancel = $('#mswap-cancel');
+  if (mswapCancel) mswapCancel.addEventListener('click', () => { state.memberSwap = null; render(); });
   document.querySelectorAll('[data-xr]').forEach((el) =>
     el.addEventListener('click', () => {
       const [id, rStr] = el.dataset.xr.split(':');
@@ -2535,6 +2585,102 @@ function applySwap(selA, selB) {
   a.set(b.get());
   b.set(va);
   recomputeLessons(); // A·B코트 변경 후 각 라운드의 C코트(레슨/대기)를 게임에 없는 인원으로 재계산
+}
+
+// ─── 참석자 멤버 교체 ───
+// 참석자 a 와 멤버 b 를 맞바꾼다.
+//  - b 가 미참석이면: a 는 빠지고 b 가 a 의 자리(대진표·지각/조퇴 라운드)를 그대로 이어받는다.
+//  - b 도 참석자이면: 참석 명단은 그대로, 대진표에서 두 사람의 자리만 서로 바뀐다.
+// 현재 보고 있는 대진표(버전)에도 반영해 처음부터 다시 짤 필요가 없게 한다.
+function swapMembers(a, b) {
+  const sel = state.attend.selectedIds;
+  if (!sel.includes(a) || !memberOf(a) || !memberOf(b)) { render(); return; }
+  const bAttending = sel.includes(b);
+  const res = state.result && !state.result.fatal ? state.result : null;
+  const entry = res ? state.history[state.currentIdx] : null;
+  const isTour = !!(res && res.mode === 'tournament');
+  // 현재 대진표에 a 또는 b 가 들어 있는지 (앵그리대회는 참석자 = 별칭 풀이므로 항상 대상)
+  const inBracket = !!(res && entry && (isTour || res.plan.byId.has(a) || res.plan.byId.has(b)));
+  const nameA = nameOf(a), nameB = nameOf(b);
+  const crossGender = genderOf(a) !== genderOf(b);
+
+  if (inBracket && res.liveId) {
+    toast('실시간 대회가 진행 중인 대진표는 멤버를 교체할 수 없습니다 (이미 공유한 링크와 어긋남).');
+    render();
+    return;
+  }
+  if (inBracket && isTour && crossGender) {
+    toast('앵그리대회 대진표는 별칭이 성별로 정해져 있어 같은 성별끼리만 교체할 수 있습니다.');
+    render();
+    return;
+  }
+  if (inBracket && crossGender &&
+      !confirm(`${nameA} ↔ ${nameB} 는 성별이 다릅니다.\n교체하면 일부 게임이 잡복이 될 수 있습니다 (대진표에 경고로 표시). 계속할까요?`)) {
+    render();
+    return;
+  }
+
+  // 1) 참석 명단
+  if (!bAttending) state.attend.selectedIds = sel.map((x) => (x === a ? b : x));
+
+  // 2) 현재 대진표
+  if (inBracket) {
+    // 대진표의 지각/조퇴(제외) 라운드는 자리에 묶여 있으므로 참석 설정도 함께 맞바꿔 일치시킨다
+    const exA = effectiveExclude(a), exB = effectiveExclude(b);
+    state.attend.excludeOverrides[b] = exA;
+    if (bAttending) state.attend.excludeOverrides[a] = exB;
+    else delete state.attend.excludeOverrides[a];
+
+    if (isTour) {
+      // 별칭 대진표는 그대로, 별칭 배정(별칭 → 멤버)만 맞바꾼다
+      const assign = res.aliasAssign || (res.aliasAssign = {});
+      Object.keys(assign).forEach((alias) => {
+        if (assign[alias] === a) assign[alias] = b;
+        else if (assign[alias] === b) assign[alias] = a;
+      });
+      entry.aliasAssign = deepClone(assign);
+    } else {
+      const mapId = (id) => (id === a ? b : id === b ? a : id);
+      res.rounds.forEach((rd) => {
+        rd.games.forEach((g) => { g.teams = g.teams.map((t) => t.map(mapId)); });
+        rd.lesson = (rd.lesson || []).map(mapId);
+        rd.excluded = (rd.excluded || []).map(mapId);
+      });
+      // 선수 정보(이름·성별·실력 순위·특성)는 새 사람 것으로, 제외 라운드는 자리 것을 유지
+      const recordOf = (id, slot) => {
+        const key = genderOf(id) === 'M' ? 'men' : 'women';
+        const idx = state.roster[key].findIndex((m) => m.id === id);
+        const m = state.roster[key][idx];
+        return { id, name: m.name, gender: genderOf(id), score: idx + 1, prefs: m.prefs, unavailableRounds: slot.unavailableRounds || [] };
+      };
+      entry.config.players = entry.config.players.map((p) =>
+        p.id === a ? recordOf(b, p) : p.id === b ? recordOf(a, p) : p);
+      entry.rounds = deepClone(res.rounds);
+      entry.edited = true;
+      res.plan = planForEntry(entry);
+      res.edited = true;
+      recomputeLessons();
+      revalidate();
+      entry.rounds = deepClone(res.rounds);
+      entry.summary = {
+        avgDiff: res.stats.scoreDiffAvg.toFixed(1),
+        maxMeet: res.stats.maxMeet,
+        partnerRepeats: res.stats.partnerRepeats,
+      };
+      // 되돌리기 스택은 이전 선수 구성 기준이라 무효 — 다시 교체하면 원래대로 돌아간다
+      state.undoStack = [];
+      state.redoStack = [];
+      state.swapSel = null;
+      state._justSwapped = new Set(res.rounds.flatMap((_, r) => [r + ':' + a, r + ':' + b]));
+    }
+  }
+
+  persistAll();
+  render();
+  state._justSwapped = null;
+  toast(bAttending
+    ? `${nameA} ↔ ${nameB} 자리를 맞바꿨습니다${inBracket ? ' (대진표 반영)' : ''}.`
+    : `${nameA} 대신 ${nameB} 참석${inBracket ? ' — 대진표의 자리를 그대로 이어받았습니다' : ''}.`);
 }
 
 // 각 라운드의 레슨/대기 명단 = 그 라운드 게임에 없는 & 제외되지 않은 참가자 (명단 순서)
