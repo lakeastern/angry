@@ -290,6 +290,16 @@ def t_regular_game_only(app: App):
     # 휴식 인원은 게임 오른쪽에 놓여 게임온리 라운드도 다른 라운드와 행 높이가 같다
     heights = app.page.evaluate("() => [...document.querySelectorAll('table.bracket tr')].slice(1).map(r => Math.round(r.getBoundingClientRect().height))")
     check(max(heights) - min(heights) <= 1, f"라운드별 행 높이가 다름: {heights}")
+    # 통계표 마지막 열은 '레슨' 횟수만 — 게임온리 라운드 휴식은 세지 않는다
+    head = app.page.evaluate("""() => { const t = [...document.querySelectorAll('table')].find(x => x.rows.length && /선수/.test(x.rows[0].textContent) && /게임/.test(x.rows[0].textContent)); return [...t.rows[0].cells].map(c => c.textContent.trim()); }""")
+    check(head[-1] == "레슨", f"통계표 마지막 열이 '레슨'이 아님: {head}")
+    lessons_by_name = {}
+    for r in rows[1:]:
+        for nm in re.findall(r"테스터[남여]\d+", r["courts"]["c코트"]):
+            lessons_by_name[nm] = lessons_by_name.get(nm, 0) + 1
+    stats = {s["name"].split()[0]: s["wait"] for s in app.per_player()}
+    mismatch = {n: (stats.get(n), lessons_by_name.get(n, 0)) for n in stats if stats.get(n) != lessons_by_name.get(n, 0)}
+    check(not mismatch, f"통계표 레슨 수가 실제 레슨 라운드 수와 다름(휴식 포함?): {mismatch}")
     check(not app.error_banners(), f"규칙 위반 배너: {app.error_banners()}")
     check(not app.errors, f"런타임 에러 발생: {app.errors[:3]}")
 

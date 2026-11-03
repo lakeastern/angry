@@ -1564,6 +1564,8 @@ function renderResult() {
 
   // 잡복이 하나라도 있으면 혼복 칸을 "혼복+잡복 합계(그중 잡복)"로 표시한다 (예: 혼복1·잡복1 → 2(1)).
   const hasJapbok = (res.stats.japbokGames || 0) > 0;
+  // 정기모임 마지막 열은 '레슨' 횟수만 — 게임온리 라운드의 휴식은 레슨이 아니므로 세지 않는다
+  const sitCount = (s) => (isReg ? s.sitRounds.filter((r) => !(res.rounds[r] && res.rounds[r].gameOnly)).length : s.sits);
   const statRows = [...res.stats.perPlayer.entries()]
     .filter(([, s]) => s.games + s.sits > 0)
     .map(([id, s]) => {
@@ -1571,7 +1573,7 @@ function renderResult() {
       const p = m.prefs || {};
       const icons = `${p.gamePriority ? '⚡' : ''}${p.newMember ? '🔰' : ''}${p.mixedPreferred ? '💞' : ''}`;
       const mixedCell = hasJapbok ? `${s.mixed + (s.japbok || 0)}(${s.japbok || 0})` : s.mixed;
-      return `<tr><td style="color:${genderOf(id) === 'M' ? 'var(--men)' : 'var(--women)'}">${esc(dispName(id))} <span class="preficon">${icons}</span></td><td>${s.games}</td><td>${mixedCell}</td><td>${s.sits}</td></tr>`;
+      return `<tr><td style="color:${genderOf(id) === 'M' ? 'var(--men)' : 'var(--women)'}">${esc(dispName(id))} <span class="preficon">${icons}</span></td><td>${s.games}</td><td>${mixedCell}</td><td>${sitCount(s)}</td></tr>`;
     })
     .join('');
 
@@ -1643,7 +1645,7 @@ function renderResult() {
       같은 상대 최대 <b>${res.stats.maxMeet}</b>번${isTour ? '' : ` · 게임 점수차 평균 <b>${res.stats.scoreDiffAvg.toFixed(1)}</b> / 최대 <b>${res.stats.scoreDiffMax}</b>`}
     </div>
     <table class="detail-table" style="max-width:360px">
-      <tr><th>선수</th><th>게임</th><th>${hasJapbok ? '혼복(잡복)' : '혼복'}</th><th>${isReg ? (regLay.hasGameOnly ? '레슨·휴식' : '레슨') : '대기'}</th></tr>
+      <tr><th>선수</th><th>게임</th><th>${hasJapbok ? '혼복(잡복)' : '혼복'}</th><th>${isReg ? '레슨' : '대기'}</th></tr>
       ${statRows}
     </table>
   </section>`;
