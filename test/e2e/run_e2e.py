@@ -304,6 +304,26 @@ def t_regular_game_only(app: App):
     check(not app.errors, f"런타임 에러 발생: {app.errors[:3]}")
 
 
+@scenario("라운드 제외 = 게임 대신 레슨 — 레슨 라운드 제외는 레슨 횟수에 포함, 게임온리 라운드 제외는 미포함")
+def t_exclude_is_lesson(app: App):
+    roster = seed_roster(7, 7)
+    ids = [p["id"] for p in roster["men"] + roster["women"]]
+    # 테스터남1: 1R(게임온리 → 휴식) + 3R(레슨 라운드 → 레슨) 제외
+    app.open(roster, attend={"selectedIds": ids, "excludeOverrides": {"tm1": [1, 3]}},
+             settings={"meetingType": "regular", "rounds": 5})
+    app.generate()
+    rows = app.bracket()
+    games1 = rows[0]["courts"]["a코트"] + rows[0]["courts"]["b코트"]
+    check("테스터남1" not in games1, f"1R 제외자가 게임에 배정됨: {games1}")
+    c3 = rows[2]["courts"]["c코트"]
+    check("테스터남1" in c3 and "vs" not in c3, f"3R 제외자가 레슨 칸에 없음: {c3}")
+    expected = sum(1 for r in rows[1:] if "테스터남1" in r["courts"]["c코트"])
+    stats = {s["name"].split()[0]: s["wait"] for s in app.per_player()}
+    check(stats.get("테스터남1") == expected, f"테스터남1 레슨 수 {stats.get('테스터남1')} ≠ 레슨 칸 등장 {expected} (제외 라운드 포함이어야 함)")
+    check(expected >= 1, "레슨 라운드 제외가 레슨으로 잡히지 않음")
+    check(not app.errors, f"런타임 에러 발생: {app.errors[:3]}")
+
+
 @scenario("앵그리대회 — 별칭(남1·여1) 대진표로 생성된다")
 def t_tournament(app: App):
     roster = seed_roster(6, 6)

@@ -67,3 +67,24 @@ test('여러 라운드 게임온리 + 지각자 제외', () => {
   assert.equal(r.rounds[0].lesson.length, 1, '14명 중 1명 지각 → 12명 게임 + 1명 휴식');
   assert.equal(r.errors.length, 0, JSON.stringify(r.errors));
 });
+
+test('라운드 제외 = 게임 대신 레슨 — 레슨 라운드 제외는 레슨 로테이션에 포함되어 중복 레슨을 받지 않는다', () => {
+  const players = mk(6, 6);
+  players[0].unavailableRounds = [2]; // m1: 2R(레슨 라운드) 제외 → 2R 레슨으로 간주
+  const r = generateSchedule({ type: 'regular', rounds: 5, players, seed: 5, searchBudget: { restarts: 8, iters: 200, polish: 400 }, options: { gameOnlyRounds: [1] } });
+  assert.ok(r.rounds[1].excluded.includes('m1'));
+  // 2~4R 레슨 슬롯(3+4+4) + m1 제외 1 = 12 → 전원 정확히 1회, m1 은 3·4R 에 다시 레슨 받지 않음
+  assert.ok(!r.rounds[2].lesson.includes('m1') && !r.rounds[3].lesson.includes('m1'), 'm1 이 로테이션 구간에서 레슨을 또 받음');
+  const covered = new Set([1, 2, 3].flatMap((i) => [...r.rounds[i].lesson, ...r.rounds[i].excluded]));
+  assert.equal(covered.size, 12);
+  assert.ok(!r.warnings.some((w) => w.code === 'W_LESSON_ROTATION'), JSON.stringify(r.warnings));
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors));
+});
+
+test('라운드 제외 — 게임온리 라운드 제외는 휴식(레슨 아님)이라 로테이션 구간에서 레슨을 받는다', () => {
+  const players = mk(6, 6);
+  players[0].unavailableRounds = [1]; // m1: 1R(게임온리) 제외 → 휴식
+  const r = generateSchedule({ type: 'regular', rounds: 5, players, seed: 5, searchBudget: { restarts: 8, iters: 200, polish: 400 }, options: { gameOnlyRounds: [1] } });
+  assert.ok(r.rounds[0].excluded.includes('m1'));
+  assert.ok([1, 2, 3].some((i) => r.rounds[i].lesson.includes('m1')), 'm1 이 2~4R 레슨을 받지 못함');
+});

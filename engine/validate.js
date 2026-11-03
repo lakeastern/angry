@@ -198,14 +198,16 @@ export function computeStats(schedule, plan) {
     ? (plan.lessonRounds || Array.from({ length: R }, (_, r) => r)).filter((r) => r < R)
     : [];
   const lessonWindow = lessonRoundList.slice(0, 3); // 로테이션 기준: 첫 레슨 라운드 3개
+  // 라운드 제외 = 그 라운드는 게임 대신 레슨(게임온리 라운드는 휴식) → 레슨 라운드의 제외도 레슨 1회로 친다
+  const hadLessonIn = (p, list) => per.get(p.id).sitRounds.some((r) => list.includes(r)) || list.some((r) => p.unavailable.has(r));
   if (schedule.type === 'regular' && lessonWindow.length >= 3) {
     for (const g of ['M', 'W']) {
-      const members = plan.players.filter((p) => p.gender === g && lessonWindow.some((r) => !p.unavailable.has(r)));
+      const members = plan.players.filter((p) => p.gender === g);
       if (!members.length) continue;
       const sitSlots = lessonWindow
         .map((r) => schedule.rounds[r])
-        .reduce((acc, rd) => acc + rd.lesson.filter((id) => byId.has(id) && byId.get(id).gender === g).length, 0);
-      const missed = members.filter((p) => !per.get(p.id).sitRounds.some((r) => lessonWindow.includes(r)));
+        .reduce((acc, rd) => acc + [...rd.lesson, ...(rd.excluded || [])].filter((id) => byId.has(id) && byId.get(id).gender === g).length, 0);
+      const missed = members.filter((p) => !hadLessonIn(p, lessonWindow));
       const minMissed = Math.max(0, members.length - sitSlots);
       const penalty = Math.max(0, missed.length - minMissed);
       rotationMiss += penalty;
@@ -216,10 +218,10 @@ export function computeStats(schedule, plan) {
   // 신규회원 레슨 미충족(정기, 레슨 슬롯이 있는 경우만)
   let newMemberLessonMiss = 0;
   if (schedule.type === 'regular') {
-    const anyByes = lessonRoundList.some((r) => schedule.rounds[r].lesson.length > 0);
+    const anyByes = lessonRoundList.some((r) => schedule.rounds[r].lesson.length > 0 || (schedule.rounds[r].excluded || []).length > 0);
     if (anyByes) {
       for (const p of plan.players) {
-        if (p.prefs.newMember && !per.get(p.id).sitRounds.some((r) => lessonRoundList.includes(r))) newMemberLessonMiss++;
+        if (p.prefs.newMember && !hadLessonIn(p, lessonRoundList)) newMemberLessonMiss++;
       }
     }
   }

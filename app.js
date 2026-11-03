@@ -1400,7 +1400,8 @@ function renderAttendance() {
       ? Object.keys(state.attend.excludeOverrides).length > 0 || orderedSel.some((m) => (m.presetExclude || []).length > 0)
       : state.ui.exclude;
     detail = `<details data-uikey="exclude" ${exclOpen ? 'open' : ''}>
-      <summary class="secsum">오늘 라운드 제외 설정 (지각/조퇴)</summary>
+      <summary class="secsum">오늘 라운드 제외 설정 (게임 대신 레슨)</summary>
+      <div class="hint">선택한 라운드는 게임에 넣지 않고 레슨에 배정합니다 (레슨 횟수에 포함). 게임온리 라운드는 휴식으로 처리됩니다.</div>
       <table class="detail-table" style="margin-top:8px;max-width:480px">
         <tr><th>선수</th><th style="text-align:left">제외 라운드</th></tr>${rows}
       </table>
@@ -1546,7 +1547,7 @@ function renderResult() {
       const shownN = Math.min(courtCols, rd.games.length);
       const gameCells = gameInners.slice(0, shownN).map((h) => `<td class="gamecell">${h}</td>`).join('') +
         '<td class="emptycourt">—</td>'.repeat(courtCols - shownN);
-      // 제외(지각/조퇴) 인원도 구분 없이 일반 이름으로 표기 (스왑 대상은 아님)
+      // 라운드 제외 인원(게임 대신 레슨, 게임온리 라운드는 휴식)도 구분 없이 일반 이름으로 표기 (스왑 대상은 아님)
       const excludedToks = rd.excluded.map((id) => `<span class="tok" style="cursor:default">${esc(dispName(id))}</span>`).join('');
       const peopleToks = rd.lesson.map((id, li) => tok(id, r, `l:${li}`)).join('') + excludedToks;
       const lastCell = isReg
@@ -1564,16 +1565,18 @@ function renderResult() {
 
   // 잡복이 하나라도 있으면 혼복 칸을 "혼복+잡복 합계(그중 잡복)"로 표시한다 (예: 혼복1·잡복1 → 2(1)).
   const hasJapbok = (res.stats.japbokGames || 0) > 0;
-  // 정기모임 마지막 열은 '레슨' 횟수만 — 게임온리 라운드의 휴식은 레슨이 아니므로 세지 않는다
-  const sitCount = (s) => (isReg ? s.sitRounds.filter((r) => !(res.rounds[r] && res.rounds[r].gameOnly)).length : s.sits);
+  // 정기모임 마지막 열은 '레슨' 횟수 — 레슨 라운드에서 레슨 칸에 있는 횟수(라운드 제외 = 게임 대신 레슨 포함).
+  // 게임온리 라운드의 휴식(라운드 제외 포함)은 레슨이 아니므로 세지 않는다.
+  const lessonCount = (id) => res.rounds.filter((rd) => !rd.gameOnly && (rd.lesson.includes(id) || (rd.excluded || []).includes(id))).length;
+  const sitCount = (id, s) => (isReg ? lessonCount(id) : s.sits);
   const statRows = [...res.stats.perPlayer.entries()]
-    .filter(([, s]) => s.games + s.sits > 0)
+    .filter(([id, s]) => s.games + s.sits > 0 || (isReg && lessonCount(id) > 0))
     .map(([id, s]) => {
       const m = memberOf(id) || { prefs: {} };
       const p = m.prefs || {};
       const icons = `${p.gamePriority ? '⚡' : ''}${p.newMember ? '🔰' : ''}${p.mixedPreferred ? '💞' : ''}`;
       const mixedCell = hasJapbok ? `${s.mixed + (s.japbok || 0)}(${s.japbok || 0})` : s.mixed;
-      return `<tr><td style="color:${genderOf(id) === 'M' ? 'var(--men)' : 'var(--women)'}">${esc(dispName(id))} <span class="preficon">${icons}</span></td><td>${s.games}</td><td>${mixedCell}</td><td>${sitCount(s)}</td></tr>`;
+      return `<tr><td style="color:${genderOf(id) === 'M' ? 'var(--men)' : 'var(--women)'}">${esc(dispName(id))} <span class="preficon">${icons}</span></td><td>${s.games}</td><td>${mixedCell}</td><td>${sitCount(id, s)}</td></tr>`;
     })
     .join('');
 
@@ -2684,7 +2687,7 @@ function applySwap(selA, selB) {
 
 // ─── 참석자 멤버 교체 ───
 // 참석자 a 와 멤버 b 를 맞바꾼다.
-//  - b 가 미참석이면: a 는 빠지고 b 가 a 의 자리(대진표·지각/조퇴 라운드)를 그대로 이어받는다.
+//  - b 가 미참석이면: a 는 빠지고 b 가 a 의 자리(대진표·라운드 제외 설정)를 그대로 이어받는다.
 //  - b 도 참석자이면: 참석 명단은 그대로, 대진표에서 두 사람의 자리만 서로 바뀐다.
 // 현재 보고 있는 대진표(버전)에도 반영해 처음부터 다시 짤 필요가 없게 한다.
 function swapMembers(a, b) {
@@ -2720,7 +2723,7 @@ function swapMembers(a, b) {
 
   // 2) 현재 대진표
   if (inBracket) {
-    // 대진표의 지각/조퇴(제외) 라운드는 자리에 묶여 있으므로 참석 설정도 함께 맞바꿔 일치시킨다
+    // 대진표의 라운드 제외(게임 대신 레슨) 설정은 자리에 묶여 있으므로 참석 설정도 함께 맞바꿔 일치시킨다
     const exA = effectiveExclude(a), exB = effectiveExclude(b);
     state.attend.excludeOverrides[b] = exA;
     if (bAttending) state.attend.excludeOverrides[a] = exB;

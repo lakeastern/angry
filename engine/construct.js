@@ -132,6 +132,8 @@ export function constructSchedule(plan, rng, opts = {}) {
       sits.set(p.id, sits.get(p.id) + 1);
       if (!gameOnly) lessoned.add(p.id);
     }
+    // 라운드 제외 = 게임 대신 레슨(게임온리 라운드는 휴식) → 레슨 라운드 제외자는 레슨을 받은 것으로 본다
+    if (!gameOnly) excluded.forEach((id) => lessoned.add(id));
     satPrev = new Set(built.sitters.map((p) => p.id));
     const roundOut = {
       games: roundGames,
