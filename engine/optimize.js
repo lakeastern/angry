@@ -98,6 +98,7 @@ function proposeMove(schedule, plan, rng) {
   const sameExcluded =
     a.excluded.length === b.excluded.length && a.excluded.every((id) => b.excluded.includes(id));
   if (!sameExcluded || a.games.length !== b.games.length) return null;
+  if (!!a.gameOnly !== !!b.gameOnly) return null; // 게임온리 ↔ 레슨 라운드는 위치가 고정 (코치 일정)
   return {
     apply() {
       const t = schedule.rounds[r1];

@@ -85,6 +85,7 @@ const state = {
     ignoreGender: false,
     strictGameCount: true, // 게임데이·앵그리대회: 인당 게임 수 우선 (필요 시 잡복까지 최소 허용)
     courts: null, // 게임데이·앵그리대회 코트 수 (null=자동 1~3, 1~4 수동)
+    gameOnlyRounds: [1], // 정기모임 게임온리 라운드: c코트도 레슨 없이 게임 (코치 일정에 따라, 기본 1라운드)
   },
   attend: { selectedIds: [], excludeOverrides: {} },
   history: [], // [{ts, seed, config, rounds, summary}] 최신이 앞
@@ -532,6 +533,24 @@ function render() {
 }
 
 // 공유 링크로 열었을 때의 보기 전용 화면
+// 정기모임 표 레이아웃: a·b코트 열 + 마지막 c코트 열.
+// c코트 열은 레슨 라운드면 레슨 인원, 게임온리 라운드면 c코트 게임 + 구석에 휴식 인원(회색·작은 글씨).
+function regularLayout(rounds) {
+  const courtCols = Math.max(1, ...rounds.map((rd) => (rd.gameOnly ? Math.min(2, rd.games.length) : rd.games.length)));
+  const hasGameOnly = rounds.some((rd) => rd.gameOnly);
+  return { courtCols, hasGameOnly, cHead: hasGameOnly ? 'c코트' : 'c코트 레슨' };
+}
+// c코트 칸 HTML (정기모임). gameInner: c코트 게임 내용 HTML(없으면 ''), peopleToks: 레슨/휴식 인원 토큰 HTML
+function regularCCell(rd, lay, gameInner, peopleToks) {
+  if (rd.gameOnly) {
+    const rest = peopleToks ? `<div class="restbox"><span class="restlabel">휴식</span>${peopleToks}</div>` : '';
+    if (!gameInner && !rest) return '<td class="emptycourt">—</td>';
+    return `<td class="gamecell ccell">${gameInner || ''}${rest}</td>`;
+  }
+  const label = lay.hasGameOnly ? '<span class="lessontag">레슨</span>' : '';
+  return `<td>${label}<div class="lessonbox">${peopleToks || '<span class="lessonlabel">—</span>'}</div></td>`;
+}
+
 function renderViewer() {
   const p = state.share;
   if (state.viewerMode === 'r') {
@@ -553,15 +572,19 @@ function renderViewer() {
   const nameV = (id) => viewerName(b, id);
   const tokV = (id) => `<span class="tok" style="cursor:default">${esc(nameV(id))}</span>`;
   const isReg = b.type === 'regular';
-  const maxCourts = Math.max(...b.rounds.map((rd) => rd.games.length));
+  const lay = isReg ? regularLayout(b.rounds) : null;
+  const maxCourts = isReg ? lay.courtCols : Math.max(...b.rounds.map((rd) => rd.games.length));
   const courtHeads = Array.from({ length: maxCourts }, (_, i) => `<th>${'abcd'[i]}코트</th>`).join('');
+  const gameInnerV = (g) => `<div class="tline">${g.teams[0].map(tokV).join('')}</div><div class="tline"><span class="vs">vs</span>${g.teams[1].map(tokV).join('')}</div>`;
   const rows = b.rounds
     .map((rd, r) => {
-      const cells = rd.games
-        .map((g) => `<td class="gamecell"><div class="tline">${g.teams[0].map(tokV).join('')}</div><div class="tline"><span class="vs">vs</span>${g.teams[1].map(tokV).join('')}</div></td>`)
-        .join('') + '<td class="emptycourt">—</td>'.repeat(maxCourts - rd.games.length);
-      const lesson = rd.lesson.map(tokV).join('') + (rd.excluded || []).map(tokV).join('') || '<span class="lessonlabel">—</span>';
-      return `<tr><td class="roundcell">${r + 1}R</td>${cells}<td><div class="lessonbox">${lesson}</div></td></tr>`;
+      const shown = rd.games.slice(0, maxCourts);
+      const cells = shown.map((g) => `<td class="gamecell">${gameInnerV(g)}</td>`).join('') + '<td class="emptycourt">—</td>'.repeat(maxCourts - shown.length);
+      const people = rd.lesson.map(tokV).join('') + (rd.excluded || []).map(tokV).join('');
+      const last = isReg
+        ? regularCCell(rd, lay, rd.games[maxCourts] ? gameInnerV(rd.games[maxCourts]) : '', people)
+        : `<td><div class="lessonbox">${people || '<span class="lessonlabel">—</span>'}</div></td>`;
+      return `<tr><td class="roundcell">${r + 1}R</td>${cells}${last}</tr>`;
     })
     .join('');
   return `
@@ -569,7 +592,7 @@ function renderViewer() {
     <h1 class="vtitle">🎾 앵그리 테니스 클럽 대진표</h1>
     <div class="bracket-scroll" style="text-align:center"><div style="display:inline-block">
       <table class="bracket">
-        <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
+        <tr><th></th>${courtHeads}<th>${isReg ? lay.cHead : '대기'}</th></tr>
         ${rows}
       </table>
       ${p.date ? `<div class="vdate">${esc(p.date)} 작성함</div>` : ''}
@@ -787,7 +810,9 @@ function bindLiveViewer() {
 function renderBracketCanvas(spec) {
   const { rounds, isReg, name, date } = spec;
   const b = { rounds };
-  const maxCourts = Math.max(...b.rounds.map((rd) => rd.games.length));
+  // 정기모임: a·b코트 열 + c코트 열(레슨, 또는 게임온리 라운드의 c코트 게임 + 휴식 인원)
+  const lay = isReg ? regularLayout(rounds) : null;
+  const maxCourts = isReg ? lay.courtCols : Math.max(...b.rounds.map((rd) => rd.games.length));
 
   const scale = Math.max(2, Math.min(3, window.devicePixelRatio || 1));
   const F_NAME = '600 15px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';
@@ -795,6 +820,8 @@ function renderBracketCanvas(spec) {
   const F_HEAD = '700 14px "Malgun Gothic",sans-serif';
   const F_TITLE = '700 20px "Malgun Gothic",sans-serif';
   const F_DATE = '12px "Malgun Gothic",sans-serif';
+  const F_REST = '500 11px "Malgun Gothic","Apple SD Gothic Neo",sans-serif'; // 휴식 인원(회색·작은 글씨)
+  const restLineH = 15;
   const lineH = 22, padX = 10, padY = 8, gap = 10, margin = 16, titleH = 36, dateH = 22;
 
   const mctx = document.createElement('canvas').getContext('2d');
@@ -814,15 +841,25 @@ function renderBracketCanvas(spec) {
     courtW.push(Math.ceil(mx) + padX * 2);
   }
   const roundW = Math.ceil(w('9R', F_HEAD)) + padX * 2;
-  const lessonHead = isReg ? 'c코트 레슨' : '대기';
+  const lessonHead = isReg ? lay.cHead : '대기';
   const lessonLinesOf = (rd) => {
     const ids = [...rd.lesson, ...(rd.excluded || [])];
     const lines = [];
     for (let i = 0; i < ids.length; i += 4) lines.push(ids.slice(i, i + 4));
     return lines.length ? lines : [[]];
   };
+  const isRestRow = (rd) => isReg && rd.gameOnly;
+  const cGameOf = (rd) => (isRestRow(rd) ? rd.games[maxCourts] || null : null);
+  const restIdsOf = (rd) => [...rd.lesson, ...(rd.excluded || [])];
+  const restText = (rd) => { const ids = restIdsOf(rd); return ids.length ? '휴식 ' + ids.map(name).join(' ') : ''; };
   let lessonW = w(lessonHead, F_HEAD);
   for (const rd of b.rounds) {
+    if (isRestRow(rd)) {
+      const g = cGameOf(rd);
+      if (g) lessonW = Math.max(lessonW, w(teamStr(g.teams[0]), F_NAME), vsPrefixW + w(teamStr(g.teams[1]), F_NAME));
+      lessonW = Math.max(lessonW, w(restText(rd), F_REST));
+      continue;
+    }
     for (const line of lessonLinesOf(rd)) {
       const lw = line.reduce((a, id) => a + w(name(id), F_NAME), 0) + Math.max(0, line.length - 1) * gap;
       lessonW = Math.max(lessonW, lw);
@@ -831,7 +868,10 @@ function renderBracketCanvas(spec) {
   lessonW = Math.ceil(lessonW) + padX * 2;
 
   const headH = lineH + padY * 2;
-  const rowH = b.rounds.map((rd) => Math.max(2, lessonLinesOf(rd).length) * lineH + padY * 2);
+  const tagH = isReg && lay.hasGameOnly ? 12 : 0; // 헤더가 'c코트'일 때 레슨 칸 위에 작은 '레슨' 표시
+  const rowH = b.rounds.map((rd) => (isRestRow(rd)
+    ? Math.max(2 * lineH, (cGameOf(rd) ? 2 * lineH : 0) + (restText(rd) ? restLineH : 0))
+    : Math.max(2, lessonLinesOf(rd).length) * lineH + tagH) + padY * 2);
   const tableW = roundW + courtW.reduce((a, x) => a + x, 0) + lessonW;
   const tableH = headH + rowH.reduce((a, x) => a + x, 0);
   const totalW = tableW + margin * 2;
@@ -891,8 +931,28 @@ function renderBracketCanvas(spec) {
       drawTeam(g.teams[1], cx + padX + vsPrefixW, midY + lineH / 2);
     }
     border(lessonX, cy, lessonW, rh);
+    if (isRestRow(rd)) {
+      const g = cGameOf(rd);
+      const rt = restText(rd);
+      const gameH = g ? 2 * lineH : 0;
+      const top = cy + (rh - gameH - (rt ? restLineH : 0)) / 2;
+      if (g) {
+        drawTeam(g.teams[0], lessonX + padX, top + lineH / 2);
+        ctx.font = F_VS; ctx.fillStyle = '#6b7280'; ctx.textAlign = 'left'; ctx.fillText('vs', lessonX + padX, top + lineH * 1.5);
+        drawTeam(g.teams[1], lessonX + padX + vsPrefixW, top + lineH * 1.5);
+      }
+      if (rt) {
+        ctx.font = F_REST; ctx.fillStyle = '#9ca3af'; ctx.textAlign = 'right';
+        ctx.fillText(rt, lessonX + lessonW - padX, g ? cy + rh - padY - restLineH / 2 : cy + rh / 2);
+      } else if (!g) {
+        ctx.fillStyle = '#c7cdd6'; ctx.font = F_NAME; ctx.textAlign = 'center'; ctx.fillText('—', lessonX + lessonW / 2, cy + rh / 2);
+      }
+      cy += rh;
+      return;
+    }
     const lines = lessonLinesOf(rd);
-    const startY = cy + rh / 2 - (lines.length - 1) * lineH / 2;
+    if (tagH) { ctx.font = F_REST; ctx.fillStyle = '#9ca3af'; ctx.textAlign = 'left'; ctx.fillText('레슨', lessonX + padX, cy + padY + 4); }
+    const startY = cy + tagH / 2 + rh / 2 - (lines.length - 1) * lineH / 2;
     lines.forEach((line, li) => {
       const ly = startY + li * lineH;
       if (!line.length) { ctx.fillStyle = '#c7cdd6'; ctx.font = F_NAME; ctx.textAlign = 'left'; ctx.fillText('—', lessonX + padX, ly); return; }
@@ -1244,6 +1304,9 @@ function renderSettings() {
   const tightChips = roundNums
     .map((n) => `<span class="xr ${(s.tightRounds || []).includes(n) ? 'on' : ''}" data-tgr="${n}">${n}</span>`)
     .join('');
+  const gameOnlyChips = roundNums
+    .map((n) => `<span class="xr ${(s.gameOnlyRounds || []).includes(n) ? 'on' : ''}" data-gor="${n}">${n}</span>`)
+    .join('');
   const rankerChips = roundNums
     .map((n) => `<span class="xr ${(s.rankerRounds || []).includes(n) ? 'on' : ''}" data-rkr="${n}">${n}</span>`)
     .join('');
@@ -1281,6 +1344,8 @@ function renderSettings() {
         <label><input type="checkbox" id="opt-strict" ${s.strictGameCount !== false ? 'checked' : ''}> 인당 게임 수 우선</label>
         <span class="hint">전원이 목표 게임 수를 채우도록 우선 배정. 성비가 크게 치우쳐 불가피할 때만 잡복을 최소한으로 허용합니다 (끄면 잡복 없이 규칙 우선, 대신 게임 수 편차 발생 가능)</span>` : ''}
         ${isReg ? `
+        <label>게임온리 라운드 <span style="display:inline-block;vertical-align:middle">${gameOnlyChips}</span></label>
+        <span class="hint">선택한 라운드는 c코트도 레슨 없이 게임으로 운영 (코치 일정에 따라, 기본 1라운드). 12명을 넘으면 남는 인원은 휴식 — c코트 칸 구석에 회색으로 표시</span>
         <label>혼복 위주 라운드 <span style="display:inline-block;vertical-align:middle">${mixedChips}</span></label>
         <span class="hint">선택한 라운드는 혼복 위주, 나머지는 남복/여복 위주 (기본 1·3)</span>` : ''}
         ${!isTour ? `
@@ -1430,9 +1495,11 @@ function renderResult() {
     });
   });
 
+  const regLay = isReg ? regularLayout(res.rounds) : null;
+  const courtCols = isReg ? regLay.courtCols : maxCourtsAll;
   const roundsHtml = res.rounds
     .map((rd, r) => {
-      const gameCells = rd.games
+      const gameInners = rd.games
         .map((g, gi) => {
           const team = (ti) => g.teams[ti].map((id, si) => tok(id, r, `g:${gi}:${ti}:${si}`)).join('');
           const known = (id) => res.plan.byId.has(id);
@@ -1467,22 +1534,26 @@ function renderResult() {
             const sc = state.scores[r + ':' + gi] || {};
             scoreHtml = `<div class="scorein"><input type="number" min="0" max="99" inputmode="numeric" data-score="${r}:${gi}:a" value="${sc.a ?? ''}"><span>:</span><input type="number" min="0" max="99" inputmode="numeric" data-score="${r}:${gi}:b" value="${sc.b ?? ''}"></div>`;
           }
-          return `<td class="gamecell">${badgeHtml}<div class="tline">${team(0)}</div><div class="tline"><span class="vs ${vsClass}">vs</span>${team(1)}</div>${scoreHtml}</td>`;
-        })
-        .join('') + '<td class="emptycourt">—</td>'.repeat(maxCourtsAll - rd.games.length);
+          return `${badgeHtml}<div class="tline">${team(0)}</div><div class="tline"><span class="vs ${vsClass}">vs</span>${team(1)}</div>${scoreHtml}`;
+        });
+      const shownN = Math.min(courtCols, rd.games.length);
+      const gameCells = gameInners.slice(0, shownN).map((h) => `<td class="gamecell">${h}</td>`).join('') +
+        '<td class="emptycourt">—</td>'.repeat(courtCols - shownN);
       // 제외(지각/조퇴) 인원도 구분 없이 일반 이름으로 표기 (스왑 대상은 아님)
       const excludedToks = rd.excluded.map((id) => `<span class="tok" style="cursor:default">${esc(dispName(id))}</span>`).join('');
-      const lessonToks = rd.lesson.map((id, li) => tok(id, r, `l:${li}`)).join('') + excludedToks || '<span class="lessonlabel">—</span>';
+      const peopleToks = rd.lesson.map((id, li) => tok(id, r, `l:${li}`)).join('') + excludedToks;
+      const lastCell = isReg
+        ? regularCCell(rd, regLay, gameInners[courtCols] || '', peopleToks)
+        : `<td><div class="lessonbox">${peopleToks || '<span class="lessonlabel">—</span>'}</div></td>`;
       return `<tr>
         <td class="roundcell">${r + 1}R</td>
         ${gameCells}
-        <td><div class="lessonbox">${lessonToks}</div></td>
+        ${lastCell}
       </tr>`;
     })
     .join('');
 
-  const maxCourts = Math.max(...res.rounds.map((rd) => rd.games.length));
-  const courtHeads = Array.from({ length: maxCourts }, (_, i) => `<th>${'abcd'[i]}코트</th>`).join('');
+  const courtHeads = Array.from({ length: courtCols }, (_, i) => `<th>${'abcd'[i]}코트</th>`).join('');
 
   // 잡복이 하나라도 있으면 혼복 칸을 "혼복+잡복 합계(그중 잡복)"로 표시한다 (예: 혼복1·잡복1 → 2(1)).
   const hasJapbok = (res.stats.japbokGames || 0) > 0;
@@ -1537,7 +1608,7 @@ function renderResult() {
     <div class="result-cols">
       <div class="bracket-col">
         <div class="bracket-scroll"><table class="bracket">
-          <tr><th></th>${courtHeads}<th>${isReg ? 'c코트 레슨' : '대기'}</th></tr>
+          <tr><th></th>${courtHeads}<th>${isReg ? regLay.cHead : '대기'}</th></tr>
           ${roundsHtml}
         </table></div>
         ${legendHtml}
@@ -1565,7 +1636,7 @@ function renderResult() {
       같은 상대 최대 <b>${res.stats.maxMeet}</b>번${isTour ? '' : ` · 게임 점수차 평균 <b>${res.stats.scoreDiffAvg.toFixed(1)}</b> / 최대 <b>${res.stats.scoreDiffMax}</b>`}
     </div>
     <table class="detail-table" style="max-width:360px">
-      <tr><th>선수</th><th>게임</th><th>${hasJapbok ? '혼복(잡복)' : '혼복'}</th><th>${isReg ? '레슨' : '대기'}</th></tr>
+      <tr><th>선수</th><th>게임</th><th>${hasJapbok ? '혼복(잡복)' : '혼복'}</th><th>${isReg ? (regLay.hasGameOnly ? '레슨·휴식' : '레슨') : '대기'}</th></tr>
       ${statRows}
     </table>
   </section>`;
@@ -1887,6 +1958,7 @@ function bindSettings() {
   roundListToggle('mxr', 'mixedRounds');
   roundListToggle('tgr', 'tightRounds');
   roundListToggle('rkr', 'rankerRounds');
+  roundListToggle('gor', 'gameOnlyRounds');
   const chk = (id, key) => {
     const el = $(id);
     if (el) el.addEventListener('change', () => { state.settings[key] = el.checked; persistAll(); });
@@ -2392,6 +2464,7 @@ function buildConfig(seed) {
       tightRounds: s.tightRounds,
       mixedRounds: s.mixedRounds,
       rankerRounds: s.rankerRounds,
+      gameOnlyRounds: s.meetingType === 'regular' ? (s.gameOnlyRounds || []) : [],
       allowConsecutiveSit: s.allowConsecutiveSit,
       allowPartnerRepeat: s.allowPartnerRepeat,
       ignoreGender: s.ignoreGender,

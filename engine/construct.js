@@ -58,6 +58,10 @@ export function constructSchedule(plan, rng, opts = {}) {
     const cMin = Math.min(...cVals);
     const cMax = Math.max(...cVals);
     const isMixedRound = plan.type === 'regular' && mixedRounds.includes(r + 1);
+    // 정기모임 레슨 라운드 순번 (게임온리 라운드는 -1: 결장 = 휴식이지 레슨이 아님)
+    const lessonRounds = plan.lessonRounds || [];
+    const gameOnly = plan.type === 'regular' && !lessonRounds.includes(r);
+    const lessonRank = lessonRounds.indexOf(r);
     let cTarget;
     if (plan.type === 'regular') {
       cTarget = isMixedRound ? cMax : cMin;
@@ -126,14 +130,16 @@ export function constructSchedule(plan, rng, opts = {}) {
     }
     for (const p of built.sitters) {
       sits.set(p.id, sits.get(p.id) + 1);
-      lessoned.add(p.id);
+      if (!gameOnly) lessoned.add(p.id);
     }
     satPrev = new Set(built.sitters.map((p) => p.id));
-    rounds.push({
+    const roundOut = {
       games: roundGames,
-      lesson: built.sitters.map((p) => p.id),
+      lesson: built.sitters.map((p) => p.id), // 게임온리 라운드에서는 휴식 인원
       excluded,
-    });
+    };
+    if (gameOnly) roundOut.gameOnly = true;
+    rounds.push(roundOut);
 
     // ─── 라운드 내부 헬퍼 ───
 
@@ -313,8 +319,8 @@ export function constructSchedule(plan, rng, opts = {}) {
     // 2라운드는 상위 랭커(1~4위)가 출전하도록 결장 후순위.
     function sitScore(p) {
       let s = games.get(p.id) * 100;
-      if (plan.type === 'regular' && r < 3 && !lessoned.has(p.id)) s += 30;
-      if (plan.type === 'regular' && p.prefs.newMember && sits.get(p.id) === 0) s += 20;
+      if (plan.type === 'regular' && lessonRank >= 0 && lessonRank < 3 && !lessoned.has(p.id)) s += 30;
+      if (plan.type === 'regular' && !gameOnly && p.prefs.newMember && !lessoned.has(p.id)) s += 20;
       if (p.prefs.gamePriority) s -= 35;
       if (rankerIds && rankerIds.has(p.id)) s -= 60;
       // 선행 배치: 다음 라운드 랭커 멤버는 이번 라운드에 결장(레슨)해 두면

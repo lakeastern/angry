@@ -76,6 +76,11 @@
   .lessonbox { display: grid; grid-template-columns: repeat(4, max-content); gap: 2px 3px; } /* 레슨/대기는 한 줄 최대 4명 */
   td.emptycourt { text-align: center; color: #c7cdd6; }
   td.gamecell { position: relative; }
+  /* 정기모임 게임온리 라운드: c코트 게임 + 구석에 휴식 인원(회색·작은 글씨) */
+  .restbox { text-align: right; margin-top: 4px; line-height: 1.2; }
+  .restbox .restlabel { font-size: 0.68rem; color: #9ca3af; margin-right: 2px; }
+  .restbox .tok { font-size: 0.72rem; font-weight: 500; color: #9ca3af; padding: 1px 2px; }
+  .lessontag { display: block; font-size: 0.68rem; color: #9ca3af; margin-bottom: 2px; }
   .cellbadges { position: absolute; top: 1px; right: 3px; font-size: 0.72rem; letter-spacing: 1px; }
   .vbadge { font-size: 0.68rem; margin-left: 1px; }
   .badge-legend { font-size: 0.8rem; color: var(--muted); margin: 4px 0 8px; text-align: center; }
@@ -226,7 +231,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-11-03 13:18</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-11-03 13:40</span></div>
 <div id="toast"></div>
 <script type="module" src="./app.js"></script>
 </body>

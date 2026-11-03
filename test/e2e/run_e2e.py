@@ -271,6 +271,26 @@ def t_regular(app: App):
     check(not app.error_banners(), f"규칙 위반 배너: {app.error_banners()}")
 
 
+@scenario("정기모임 게임온리 라운드 — 1R은 c코트도 게임, 14명이면 2명 휴식")
+def t_regular_game_only(app: App):
+    roster = seed_roster(7, 7)
+    # gameOnlyRounds 미지정 → 앱 기본값(1라운드 게임온리)
+    app.open(roster, settings={"meetingType": "regular", "rounds": 5})
+    app.generate()
+    rows = app.bracket()
+    check(len(rows) == 5, f"라운드 수가 5가 아님: {len(rows)}")
+    heads = list(rows[0]["courts"])
+    check(heads == ["a코트", "b코트", "c코트"], f"정기모임 열이 a·b·c코트가 아님: {heads}")
+    c1 = rows[0]["courts"]["c코트"]
+    check("vs" in c1 and "휴식" in c1, f"1R c코트에 게임+휴식이 없음: {c1}")
+    rest = app.page.locator("table.bracket tr").nth(1).locator(".restbox .tok").count()
+    check(rest == 2, f"1R 휴식 인원이 2명이 아님: {rest}")
+    for r in rows[1:]:
+        check("vs" not in r["courts"]["c코트"] and "레슨" in r["courts"]["c코트"], f"{r['round']} c코트가 레슨이 아님: {r['courts']['c코트']}")
+    check(not app.error_banners(), f"규칙 위반 배너: {app.error_banners()}")
+    check(not app.errors, f"런타임 에러 발생: {app.errors[:3]}")
+
+
 @scenario("앵그리대회 — 별칭(남1·여1) 대진표로 생성된다")
 def t_tournament(app: App):
     roster = seed_roster(6, 6)

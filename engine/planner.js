@@ -19,6 +19,7 @@ export const DEFAULT_OPTIONS = {
   ignoreGender: false, // 성별 구분 없이 편성 (잡복 허용)
   strictGameCount: true, // 게임데이·앵그리대회: 인당 게임 수를 맞추기 위해 덜 중요한 제약부터 자동 완화(마지막 잡복)
   courts: null, // 게임데이·앵그리대회 코트 수 (null=자동 1~3, 또는 1~4 수동 지정)
+  gameOnlyRounds: [], // 정기모임 게임온리 라운드 (1-based): c코트도 레슨 없이 게임 (코치 부재 등). 앱 기본값은 [1]
 };
 
 // 입력 형식: { id, name, gender:'M'|'W', score(성별 내 실력 순위, 1=최강),
@@ -67,6 +68,7 @@ export function buildPlan(config) {
   const options = Object.assign({}, DEFAULT_OPTIONS, config.options || {});
   options.mixedRounds = Array.isArray(options.mixedRounds) ? options.mixedRounds.map(Number) : [1, 3];
   options.rankerRounds = Array.isArray(options.rankerRounds) ? options.rankerRounds.map(Number) : [2];
+  options.gameOnlyRounds = Array.isArray(options.gameOnlyRounds) ? options.gameOnlyRounds.map(Number) : [];
   // 게임데이(monthly) 인당 최소 혼복 게임 수 (0~4, 기본 1, 0이면 미적용). 정기모임에는 미적용
   options.minMixedGames = Math.max(0, Math.min(4, Number.isFinite(+options.minMixedGames) ? Math.floor(+options.minMixedGames) : 1));
   // 하위 호환: 숫자 n(초반 n라운드)으로 온 경우 [1..n]으로 변환
@@ -117,7 +119,9 @@ export function buildPlan(config) {
     R = Number(config.rounds) || 5;
     if (R < 1 || R > 12) throw new SchedulerError('라운드 수는 1~12 사이여야 합니다.');
     const C = Math.min(2, Math.floor(N / 4));
-    courtsPerRound = Array(R).fill(C);
+    // 게임온리 라운드는 c코트까지 게임 (최대 3코트, 인원이 모자라면 축소). 남는 인원은 휴식(대기)
+    const CG = Math.min(3, Math.floor(N / 4));
+    courtsPerRound = Array.from({ length: R }, (_, r) => (options.gameOnlyRounds.includes(r + 1) ? CG : C));
     if (C < 2) {
       planWarnings.push({
         code: 'W_COURT_REDUCED',
@@ -206,9 +210,15 @@ export function buildPlan(config) {
     }
   }
 
+  // 레슨 라운드(0-based): 정기모임에서 게임온리가 아닌 라운드 — 레슨 로테이션은 이 라운드들 기준
+  const lessonRounds = type === 'regular'
+    ? Array.from({ length: R }, (_, r) => r).filter((r) => !options.gameOnlyRounds.includes(r + 1))
+    : [];
+
   return {
     type,
     options,
+    lessonRounds,
     players,
     byId: new Map(players.map((p) => [p.id, p])),
     men,

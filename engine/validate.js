@@ -193,14 +193,19 @@ export function computeStats(schedule, plan) {
   // 결장 슬롯의 성별 구성은 게임 유형 규칙이 결정하므로, 성별별 실제 슬롯 대비 미달성분만 벌점.
   let rotationMiss = 0;
   let rotationMissedIds = [];
-  if (schedule.type === 'regular' && R >= 3) {
+  // 정기모임 레슨 라운드(게임온리 라운드 제외). 옛 plan(lessonRounds 없음)은 전 라운드가 레슨 라운드
+  const lessonRoundList = schedule.type === 'regular'
+    ? (plan.lessonRounds || Array.from({ length: R }, (_, r) => r)).filter((r) => r < R)
+    : [];
+  const lessonWindow = lessonRoundList.slice(0, 3); // 로테이션 기준: 첫 레슨 라운드 3개
+  if (schedule.type === 'regular' && lessonWindow.length >= 3) {
     for (const g of ['M', 'W']) {
-      const members = plan.players.filter((p) => p.gender === g && [0, 1, 2].some((r) => !p.unavailable.has(r)));
+      const members = plan.players.filter((p) => p.gender === g && lessonWindow.some((r) => !p.unavailable.has(r)));
       if (!members.length) continue;
-      const sitSlots = schedule.rounds
-        .slice(0, 3)
+      const sitSlots = lessonWindow
+        .map((r) => schedule.rounds[r])
         .reduce((acc, rd) => acc + rd.lesson.filter((id) => byId.has(id) && byId.get(id).gender === g).length, 0);
-      const missed = members.filter((p) => !per.get(p.id).sitRounds.some((r) => r < 3));
+      const missed = members.filter((p) => !per.get(p.id).sitRounds.some((r) => lessonWindow.includes(r)));
       const minMissed = Math.max(0, members.length - sitSlots);
       const penalty = Math.max(0, missed.length - minMissed);
       rotationMiss += penalty;
@@ -211,10 +216,10 @@ export function computeStats(schedule, plan) {
   // 신규회원 레슨 미충족(정기, 레슨 슬롯이 있는 경우만)
   let newMemberLessonMiss = 0;
   if (schedule.type === 'regular') {
-    const anyByes = schedule.rounds.some((rd) => rd.lesson.length > 0);
+    const anyByes = lessonRoundList.some((r) => schedule.rounds[r].lesson.length > 0);
     if (anyByes) {
       for (const p of plan.players) {
-        if (p.prefs.newMember && per.get(p.id).sits === 0) newMemberLessonMiss++;
+        if (p.prefs.newMember && !per.get(p.id).sitRounds.some((r) => lessonRoundList.includes(r))) newMemberLessonMiss++;
       }
     }
   }
@@ -248,7 +253,8 @@ export function computeStats(schedule, plan) {
   // 레슨 그룹 실력 유사성(정기, 최하 우선순위)
   let lessonSkillSpread = 0;
   if (schedule.type === 'regular') {
-    for (const rd of schedule.rounds) {
+    for (const r of lessonRoundList) {
+      const rd = schedule.rounds[r];
       if (rd.lesson.length >= 2) {
         const scores = rd.lesson.filter((id) => byId.has(id)).map((id) => byId.get(id).score);
         lessonSkillSpread += Math.max(...scores) - Math.min(...scores);
@@ -375,6 +381,7 @@ export function computeStats(schedule, plan) {
     spreadDetails,
     rotationMiss,
     rotationMissedIds,
+    lessonWindow,
     newMemberLessonMiss,
     mixedUncovered,
     mixedUncoveredIds,
@@ -422,7 +429,7 @@ export function validateSchedule(schedule, plan) {
   if (stats.rotationMiss > 0) {
     warnings.push({
       code: 'W_LESSON_ROTATION',
-      message: `3라운드 내 레슨을 받지 못한 인원이 이론적 최소보다 ${stats.rotationMiss}명 많습니다 (${stats.rotationMissedIds.map(label).join(', ')}).`,
+      message: `${stats.lessonWindow && stats.lessonWindow[2] !== 2 ? `레슨 라운드(${stats.lessonWindow.map((r) => r + 1).join('·')}R)` : '3라운드'} 내 레슨을 받지 못한 인원이 이론적 최소보다 ${stats.rotationMiss}명 많습니다 (${stats.rotationMissedIds.map(label).join(', ')}).`,
     });
   }
 
