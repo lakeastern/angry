@@ -282,11 +282,14 @@ def t_regular_game_only(app: App):
     heads = list(rows[0]["courts"])
     check(heads == ["a코트", "b코트", "c코트"], f"정기모임 열이 a·b·c코트가 아님: {heads}")
     c1 = rows[0]["courts"]["c코트"]
-    check("vs" in c1 and "휴식" in c1, f"1R c코트에 게임+휴식이 없음: {c1}")
+    check("vs" in c1, f"1R c코트에 게임이 없음: {c1}")
     rest = app.page.locator("table.bracket tr").nth(1).locator(".restbox .tok").count()
     check(rest == 2, f"1R 휴식 인원이 2명이 아님: {rest}")
     for r in rows[1:]:
-        check("vs" not in r["courts"]["c코트"] and "레슨" in r["courts"]["c코트"], f"{r['round']} c코트가 레슨이 아님: {r['courts']['c코트']}")
+        check("vs" not in r["courts"]["c코트"], f"{r['round']} c코트가 레슨이 아님: {r['courts']['c코트']}")
+    # 휴식 인원은 게임 오른쪽에 놓여 게임온리 라운드도 다른 라운드와 행 높이가 같다
+    heights = app.page.evaluate("() => [...document.querySelectorAll('table.bracket tr')].slice(1).map(r => Math.round(r.getBoundingClientRect().height))")
+    check(max(heights) - min(heights) <= 1, f"라운드별 행 높이가 다름: {heights}")
     check(not app.error_banners(), f"규칙 위반 배너: {app.error_banners()}")
     check(not app.errors, f"런타임 에러 발생: {app.errors[:3]}")
 
