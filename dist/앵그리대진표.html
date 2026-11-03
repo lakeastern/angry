@@ -232,7 +232,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-11-03 23:33</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-11-03 23:41</span></div>
 <div id="toast"></div>
 <script>
 'use strict';
@@ -435,9 +435,14 @@ function computeStats(schedule, plan) {
   let consecutiveSits = 0;
   const consecutiveSitList = [];
   for (const p of plan.players) {
-    const rounds = per.get(p.id).sitRounds;
+    // 정기모임: 라운드 제외(게임 대신 레슨, 게임온리는 휴식)도 결장으로 친다.
+    // 단 제외↔제외(둘 다 사용자가 지정)는 배정으로 피할 수 없으므로 연속 결장으로 보지 않는다.
+    const excl = schedule.type === 'regular'
+      ? [...p.unavailable].filter((r) => r >= 0 && r < R)
+      : [];
+    const rounds = [...new Set([...per.get(p.id).sitRounds, ...excl])].sort((a, b) => a - b);
     for (let i = 1; i < rounds.length; i++) {
-      if (rounds[i] === rounds[i - 1] + 1) {
+      if (rounds[i] === rounds[i - 1] + 1 && !(p.unavailable.has(rounds[i]) && p.unavailable.has(rounds[i - 1]))) {
         consecutiveSits++;
         consecutiveSitList.push({ id: p.id, rounds: [rounds[i - 1], rounds[i]] });
       }
@@ -1030,7 +1035,11 @@ function constructSchedule(plan, rng, opts = {}) {
     const excluded = plan.players.filter((p) => p.unavailable.has(r)).map((p) => p.id);
     const availM = avail.filter((p) => p.gender === 'M').sort((a, b) => a.score - b.score);
     const availW = avail.filter((p) => p.gender === 'W').sort((a, b) => a.score - b.score);
-    const requiredIds = new Set(avail.filter((p) => satPrev.has(p.id)).map((p) => p.id));
+    // 연속 결장 금지: 직전 라운드에 결장한 사람은 이번 라운드 출전.
+    // 정기모임은 라운드 제외(게임 대신 레슨/휴식)도 결장으로 치므로, 다음 라운드에 제외된 사람도 이번 라운드 출전.
+    const requiredIds = new Set(avail
+      .filter((p) => satPrev.has(p.id) || (plan.type === 'regular' && p.unavailable.has(r + 1)))
+      .map((p) => p.id));
     const reqM = availM.filter((p) => requiredIds.has(p.id)).length;
     const reqW = availW.filter((p) => requiredIds.has(p.id)).length;
 
@@ -1123,6 +1132,7 @@ function constructSchedule(plan, rng, opts = {}) {
     // 라운드 제외 = 게임 대신 레슨(게임온리 라운드는 휴식) → 레슨 라운드 제외자는 레슨을 받은 것으로 본다
     if (!gameOnly) excluded.forEach((id) => lessoned.add(id));
     satPrev = new Set(built.sitters.map((p) => p.id));
+    if (plan.type === 'regular') excluded.forEach((id) => satPrev.add(id)); // 제외 = 결장 → 다음 라운드 출전
     const roundOut = {
       games: roundGames,
       lesson: built.sitters.map((p) => p.id), // 게임온리 라운드에서는 휴식 인원
@@ -3574,7 +3584,7 @@ function renderAttendance() {
       : state.ui.exclude;
     detail = `<details data-uikey="exclude" ${exclOpen ? 'open' : ''}>
       <summary class="secsum">오늘 라운드 제외 설정 (게임 대신 레슨)</summary>
-      <div class="hint">선택한 라운드는 게임에 넣지 않고 레슨에 배정합니다 (레슨 횟수에 포함). 게임온리 라운드는 휴식으로 처리됩니다.</div>
+      <div class="hint">선택한 라운드는 게임에 넣지 않고 레슨에 배정합니다 (레슨 횟수에 포함). 게임온리 라운드는 휴식으로 처리됩니다. 제외도 결장으로 쳐서 바로 앞·뒤 라운드는 게임에 배정합니다.</div>
       <table class="detail-table" style="margin-top:8px;max-width:480px">
         <tr><th>선수</th><th style="text-align:left">제외 라운드</th></tr>${rows}
       </table>

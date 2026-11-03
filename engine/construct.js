@@ -42,7 +42,11 @@ export function constructSchedule(plan, rng, opts = {}) {
     const excluded = plan.players.filter((p) => p.unavailable.has(r)).map((p) => p.id);
     const availM = avail.filter((p) => p.gender === 'M').sort((a, b) => a.score - b.score);
     const availW = avail.filter((p) => p.gender === 'W').sort((a, b) => a.score - b.score);
-    const requiredIds = new Set(avail.filter((p) => satPrev.has(p.id)).map((p) => p.id));
+    // 연속 결장 금지: 직전 라운드에 결장한 사람은 이번 라운드 출전.
+    // 정기모임은 라운드 제외(게임 대신 레슨/휴식)도 결장으로 치므로, 다음 라운드에 제외된 사람도 이번 라운드 출전.
+    const requiredIds = new Set(avail
+      .filter((p) => satPrev.has(p.id) || (plan.type === 'regular' && p.unavailable.has(r + 1)))
+      .map((p) => p.id));
     const reqM = availM.filter((p) => requiredIds.has(p.id)).length;
     const reqW = availW.filter((p) => requiredIds.has(p.id)).length;
 
@@ -135,6 +139,7 @@ export function constructSchedule(plan, rng, opts = {}) {
     // 라운드 제외 = 게임 대신 레슨(게임온리 라운드는 휴식) → 레슨 라운드 제외자는 레슨을 받은 것으로 본다
     if (!gameOnly) excluded.forEach((id) => lessoned.add(id));
     satPrev = new Set(built.sitters.map((p) => p.id));
+    if (plan.type === 'regular') excluded.forEach((id) => satPrev.add(id)); // 제외 = 결장 → 다음 라운드 출전
     const roundOut = {
       games: roundGames,
       lesson: built.sitters.map((p) => p.id), // 게임온리 라운드에서는 휴식 인원

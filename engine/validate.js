@@ -159,9 +159,14 @@ export function computeStats(schedule, plan) {
   let consecutiveSits = 0;
   const consecutiveSitList = [];
   for (const p of plan.players) {
-    const rounds = per.get(p.id).sitRounds;
+    // 정기모임: 라운드 제외(게임 대신 레슨, 게임온리는 휴식)도 결장으로 친다.
+    // 단 제외↔제외(둘 다 사용자가 지정)는 배정으로 피할 수 없으므로 연속 결장으로 보지 않는다.
+    const excl = schedule.type === 'regular'
+      ? [...p.unavailable].filter((r) => r >= 0 && r < R)
+      : [];
+    const rounds = [...new Set([...per.get(p.id).sitRounds, ...excl])].sort((a, b) => a - b);
     for (let i = 1; i < rounds.length; i++) {
-      if (rounds[i] === rounds[i - 1] + 1) {
+      if (rounds[i] === rounds[i - 1] + 1 && !(p.unavailable.has(rounds[i]) && p.unavailable.has(rounds[i - 1]))) {
         consecutiveSits++;
         consecutiveSitList.push({ id: p.id, rounds: [rounds[i - 1], rounds[i]] });
       }

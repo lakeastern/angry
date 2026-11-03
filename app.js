@@ -1401,7 +1401,7 @@ function renderAttendance() {
       : state.ui.exclude;
     detail = `<details data-uikey="exclude" ${exclOpen ? 'open' : ''}>
       <summary class="secsum">오늘 라운드 제외 설정 (게임 대신 레슨)</summary>
-      <div class="hint">선택한 라운드는 게임에 넣지 않고 레슨에 배정합니다 (레슨 횟수에 포함). 게임온리 라운드는 휴식으로 처리됩니다.</div>
+      <div class="hint">선택한 라운드는 게임에 넣지 않고 레슨에 배정합니다 (레슨 횟수에 포함). 게임온리 라운드는 휴식으로 처리됩니다. 제외도 결장으로 쳐서 바로 앞·뒤 라운드는 게임에 배정합니다.</div>
       <table class="detail-table" style="margin-top:8px;max-width:480px">
         <tr><th>선수</th><th style="text-align:left">제외 라운드</th></tr>${rows}
       </table>

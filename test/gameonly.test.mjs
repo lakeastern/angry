@@ -88,3 +88,37 @@ test('라운드 제외 — 게임온리 라운드 제외는 휴식(레슨 아님
   assert.ok(r.rounds[0].excluded.includes('m1'));
   assert.ok([1, 2, 3].some((i) => r.rounds[i].lesson.includes('m1')), 'm1 이 2~4R 레슨을 받지 못함');
 });
+
+// 라운드 제외도 결장 — 제외 라운드 바로 앞·뒤 라운드에는 레슨/휴식 없이 게임에 나가야 한다
+const playsIn = (rd, id) => rd.games.some((g) => g.teams.flat().includes(id));
+for (const [label, excl, gameOnlyRounds] of [
+  ['레슨 라운드(3R) 제외 → 2R·4R 출전', [3], [1]],
+  ['게임온리 라운드(1R) 제외(휴식) → 2R 출전', [1], [1]],
+  ['게임온리 없음 · 2R 제외 → 1R·3R 출전', [2], []],
+]) {
+  test(`연속 결장: ${label}`, () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const players = mk(7, 7);
+      players[0].unavailableRounds = excl;
+      players[7].unavailableRounds = excl; // w1 도 동일
+      const r = generateSchedule({ type: 'regular', rounds: 5, players, seed, searchBudget: { restarts: 8, iters: 200, polish: 400 }, options: { gameOnlyRounds } });
+      for (const id of ['m1', 'w1']) {
+        for (const x of excl) {
+          for (const adj of [x - 2, x]) { // 0-based 앞·뒤 라운드
+            if (adj < 0 || adj >= 5 || excl.includes(adj + 1)) continue;
+            assert.ok(playsIn(r.rounds[adj], id), `seed ${seed}: ${id} 가 ${adj + 1}R 에 게임이 아님 (제외 ${x}R 과 연속 결장)`);
+          }
+        }
+      }
+      assert.equal(r.stats.consecutiveSits, 0, `seed ${seed}: 연속 결장 ${r.stats.consecutiveSits}`);
+    }
+  });
+}
+
+test('연속 결장: 제외↔제외(사용자 지정 연속 제외)는 위반으로 보지 않는다', () => {
+  const players = mk(7, 7);
+  players[0].unavailableRounds = [2, 3];
+  const r = generateSchedule({ type: 'regular', rounds: 5, players, seed: 9, searchBudget: { restarts: 8, iters: 200, polish: 400 }, options: { gameOnlyRounds: [1] } });
+  assert.ok(!r.stats.consecutiveSitList.some((c) => c.id === 'm1' && c.rounds[0] === 1 && c.rounds[1] === 2));
+  assert.ok(playsIn(r.rounds[0], 'm1') && playsIn(r.rounds[3], 'm1'), 'm1 은 1R·4R 에 게임');
+});
