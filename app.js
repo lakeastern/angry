@@ -1065,7 +1065,7 @@ function renderRoster() {
           <span class="dragh" title="끌어서 순서 변경">≡</span>
           <span class="rank">${i + 1}</span>
           ${nameHtml}
-          ${m.guest ? '<span class="guestb">게스트</span>' : ''}
+          ${m.guest ? `<span class="guestb" data-unguest="${m.id}" role="button" title="눌러서 정회원으로 전환">게스트 ×</span>` : ''}
           <span class="traits">
             <span class="tbtn ${t.gamePriority ? 'on' : ''}" data-trait="${m.id}:gamePriority" title="게임선호: 레슨/대기 최소화">⚡</span>
             <span class="tbtn ${t.newMember ? 'on' : ''}" data-trait="${m.id}:newMember" title="신규회원: 레슨 우선 + 상위 실력자와 매칭">🔰</span>
@@ -1098,7 +1098,7 @@ function renderRoster() {
         ${col('men', '남자', 'mcol')}
         ${col('women', '여자', 'wcol')}
       </div>
-      <div class="hint">⚡게임선호 · 🔰신규회원 · 💞혼복선호 — 아이콘을 눌러 켜고 끕니다. 탈퇴/게스트 정리는 × 버튼.</div>
+      <div class="hint">⚡게임선호 · 🔰신규회원 · 💞혼복선호 — 아이콘을 눌러 켜고 끕니다. 게스트가 정회원이 되면 <b>게스트 ×</b> 뱃지를 누르세요. 탈퇴/게스트 정리는 × 버튼.</div>
       ${renderRosterCloudLine()}
     </details>
   </section>`;
@@ -1836,6 +1836,19 @@ function bindRoster() {
       m.prefs[key] = !m.prefs[key];
       persistAll();
       render();
+    })
+  );
+
+  // 게스트 → 정회원 전환 (게스트 뱃지 해제)
+  document.querySelectorAll('[data-unguest]').forEach((el) =>
+    el.addEventListener('click', () => {
+      const m = memberOf(el.dataset.unguest);
+      if (!m || !m.guest) return;
+      if (!confirm(`${m.name} 님을 정회원으로 전환할까요?\n게스트 뱃지가 해제되고, 앵그리랭킹 "현재 명단만" 보기에도 포함됩니다.`)) return;
+      m.guest = false;
+      persistAll();
+      render();
+      toast(`${m.name} 님이 정회원으로 전환되었습니다.`);
     })
   );
 

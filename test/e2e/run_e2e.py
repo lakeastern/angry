@@ -359,6 +359,26 @@ def t_member_swap(app: App):
     check(not app.errors, f"런타임 에러 발생: {app.errors[:3]}")
 
 
+@scenario("클럽 명단 — 게스트 뱃지를 눌러 정회원으로 전환")
+def t_unguest(app: App):
+    roster = seed_roster(6, 6)
+    roster["men"][5]["guest"] = True
+    app.open(roster, settings={"meetingType": "monthly"})
+    page = app.page
+    page.evaluate("""() => document.querySelectorAll('details[data-uikey="roster"]').forEach(d => d.open = true)""")
+    badge = page.locator('[data-unguest="tm6"]')
+    check(badge.count() == 1, "게스트 뱃지가 없음")
+    page.once("dialog", lambda d: d.dismiss())
+    badge.click()
+    check(page.locator('[data-unguest="tm6"]').count() == 1, "확인 창에서 취소했는데 전환됨")
+    page.once("dialog", lambda d: d.accept())
+    page.locator('[data-unguest="tm6"]').click()
+    check(page.locator('[data-unguest="tm6"]').count() == 0, "확인 후에도 게스트 뱃지가 남아 있음")
+    saved = page.evaluate("() => JSON.parse(localStorage.getItem('angry-roster-v2')).men[5].guest")
+    check(saved is False, f"저장된 명단에 게스트 해제가 반영되지 않음: {saved}")
+    check(not app.errors, f"런타임 에러 발생: {app.errors[:3]}")
+
+
 @scenario("자바스크립트 런타임 에러가 없다 (번들 누락 회귀 방지)")
 def t_no_js_errors(app: App):
     roster = seed_roster(6, 6)

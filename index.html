@@ -124,6 +124,8 @@
   .wcol .rname { color: var(--women); }
   .name-edit { flex: 1; min-width: 60px; padding: 3px 6px; border: 1.5px solid var(--accent); border-radius: 5px; font-size: 0.9rem; font-weight: 700; }
   .guestb { font-size: 0.68rem; background: #fef9c3; color: #a16207; border-radius: 4px; padding: 1px 5px; font-weight: 700; }
+  .guestb[data-unguest] { cursor: pointer; user-select: none; }
+  .guestb[data-unguest]:hover { background: #fde68a; }
   .traits { display: flex; gap: 2px; }
   .tbtn {
     cursor: pointer; font-size: 0.85rem; padding: 1px 3px; border-radius: 5px;
@@ -230,7 +232,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-11-03 13:47</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-11-03 14:03</span></div>
 <div id="toast"></div>
 <script type="module" src="./app.js"></script>
 </body>
