@@ -109,7 +109,7 @@
 
 ```
 npm test             # 엔진 단위 테스트 — 8~18명 남녀 전 조합 + 엣지 케이스 (487 tests)
-npm run test:e2e     # 브라우저 E2E — 실제로 렌더되고 클릭이 동작하는지 (13 시나리오)
+npm run test:e2e     # 브라우저 E2E — 실제로 렌더되고 클릭이 동작하는지 (14 시나리오)
 npm run test:e2e:dist  # 배포 번들(dist/) 을 같은 시나리오로 검증
 npm run build        # dist/앵그리대진표.html 단일 파일 생성
 ```

@@ -174,7 +174,10 @@ class App:
             if (!t) return [];
             return [...t.rows].slice(1).map(r => {
                 const c = [...r.cells].map(x => x.textContent.trim());
-                return { name: c[0], games: Number(c[1]), mixed: Number(c[2]), wait: Number(c[3]) };
+                // 게임 칸은 "2(1·3)" 형식 — 게임 수와 참여 라운드를 나눠 담는다
+                const m = c[1].match(/^(\d+)(?:\(([\d·]+)\))?$/);
+                return { name: c[0], games: m ? Number(m[1]) : NaN, gameRounds: m && m[2] ? m[2].split('·').map(Number) : [],
+                         mixed: Number(c[2]), wait: Number(c[3]) };
             });
         }""")
 
@@ -349,6 +352,26 @@ def t_swap_excluded(app: App):
     page.locator("#undo").click()
     back = page.locator('[data-tok="tm1"][data-round="2"]').get_attribute("data-loc")
     check(back.startswith("x:"), f"되돌리기 후 제외 칸으로 돌아가지 않음: {back}")
+    check(not app.errors, f"런타임 에러 발생: {app.errors[:3]}")
+
+
+@scenario("통계표 게임 칸 — 게임 수와 참여 라운드를 \"2(1·3)\" 형식으로")
+def t_game_rounds_cell(app: App):
+    roster = seed_roster(7, 7)
+    app.open(roster, settings={"meetingType": "regular", "rounds": 5})
+    app.generate()
+    names = {p["id"]: p["name"] for p in roster["men"] + roster["women"]}
+    # 대진표의 실제 게임 자리(data-loc="g:…")에서 선수별 참여 라운드를 모은다
+    slots = app.page.evaluate("""() => [...document.querySelectorAll('table.bracket [data-tok][data-loc^="g:"]')]
+        .map(e => [e.dataset.tok, Number(e.dataset.round) + 1])""")
+    actual = {}
+    for pid, rnd in slots:
+        actual.setdefault(names[pid], []).append(rnd)
+    stats = app.per_player()
+    check(stats and all(s["games"] == len(s["gameRounds"]) for s in stats), f"게임 수와 라운드 개수가 다름: {stats[:3]}")
+    for s in stats:
+        nm = s["name"].split()[0]
+        check(s["gameRounds"] == sorted(actual.get(nm, [])), f"{nm} 참여 라운드 {s['gameRounds']} ≠ 대진표 {sorted(actual.get(nm, []))}")
     check(not app.errors, f"런타임 에러 발생: {app.errors[:3]}")
 
 
