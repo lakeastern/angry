@@ -24,7 +24,7 @@ function expectedInfeasible(type, M, W) {
   return false;
 }
 
-const HARD_STRUCTURAL = ['E_DUP_ASSIGN', 'E_EXCLUDED_ASSIGNED', 'E_JAPBOK', 'E_BAD_GAME', 'E_UNASSIGNED', 'E_UNKNOWN_PLAYER'];
+const HARD_STRUCTURAL = ['E_DUP_ASSIGN', 'E_JAPBOK', 'E_BAD_GAME', 'E_UNASSIGNED', 'E_UNKNOWN_PLAYER'];
 const BUDGET = { restarts: 8, iters: 250, polish: 400 };
 
 for (const type of ['regular', 'monthly']) {
@@ -54,6 +54,8 @@ for (const type of ['regular', 'monthly']) {
         // 하드 제약: 구조적 위반은 어떤 경우에도 0
         const structural = res.errors.filter((e) => HARD_STRUCTURAL.includes(e.code));
         assert.deepEqual(structural, [], `${name}: 구조적 위반 발생`);
+        // 엔진은 제외 라운드에 게임을 배정하지 않는다 (수동 교체에서만 경고로 허용)
+        assert.deepEqual(res.stats.excludedAssigned, [], `${name}: 제외 인원이 게임에 배정됨`);
 
         // 파트너 중복: 완화가 명시된 경우에만 허용
         const partnerRelaxed = res.relaxationsApplied.some((r) => r.includes('파트너'));
@@ -111,6 +113,8 @@ for (const type of ['regular', 'monthly']) {
         }
         const structural = res.errors.filter((e) => HARD_STRUCTURAL.includes(e.code));
         assert.deepEqual(structural, [], `${name}: 구조적 위반 발생`);
+        // 엔진은 제외 라운드에 게임을 배정하지 않는다 (수동 교체에서만 경고로 허용)
+        assert.deepEqual(res.stats.excludedAssigned, [], `${name}: 제외 인원이 게임에 배정됨`);
         assert.equal(res.stats.mmVsWwGames, 0, `${name}: 남복 vs 여복(남남 vs 여여) 대진 발생`);
       });
     }

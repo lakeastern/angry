@@ -9,7 +9,7 @@ export function costOf(schedule, plan) {
   // 하드 제약 바로 아래 독립 계층으로 최우선 배치. 정기모임은 기존대로 연속 결장과 동반.
   const isMT = plan.type === 'monthly';
   return [
-    st.structural.length * 10, // 하드: 구조적 무결성 (항상 0이어야 함)
+    (st.structural.length + st.excludedAssigned.length) * 10, // 하드: 구조적 무결성 + 제외 라운드 미배정 (엔진 생성은 항상 0)
     // 남복 팀 vs 여복 팀(남남 vs 여여) 대진 금지. 게임 내 팀 분할만으로 항상 해소 가능하고
     // 출전·게임 수에 영향이 없어, 파트너 중복(하드)보다 위에 두어도 정상 모드는 영향 없음
     // (정상 모드는 잡복 자체가 없어 항상 0). 성별 무시 편성에서만 실효.

@@ -1481,10 +1481,11 @@ function renderResult() {
     addPBadge(cs.rounds[0], cs.id, '💤');
     addPBadge(cs.rounds[1], cs.id, '💤');
   });
+  // 제외 라운드인데 수동 교체로 게임에 들어간 인원 (허용, 경고만)
+  (st.excludedAssigned || []).forEach((x) => addPBadge(x.round, x.id, '⛔'));
   const badGames = new Set(); // `${round}:${court}` — 게임 구성 오류(4인 미충족 등)
   st.structural.forEach((s) => {
     if (s.code === 'E_DUP_ASSIGN' && s.players) s.players.forEach((id) => addPBadge(s.round, id, '⚠️'));
-    if (s.code === 'E_EXCLUDED_ASSIGNED' && s.players) s.players.forEach((id) => addPBadge(s.round, id, '⛔'));
     if (s.code === 'E_BAD_GAME') {
       badGames.add(s.round + ':' + s.court);
       if (s.players) s.players.forEach((id) => addPBadge(s.round, id, '⚠️'));
@@ -1548,7 +1549,8 @@ function renderResult() {
       const gameCells = gameInners.slice(0, shownN).map((h) => `<td class="gamecell">${h}</td>`).join('') +
         '<td class="emptycourt">—</td>'.repeat(courtCols - shownN);
       // 라운드 제외 인원(게임 대신 레슨, 게임온리 라운드는 휴식)도 구분 없이 일반 이름으로 표기 (스왑 대상은 아님)
-      const excludedToks = rd.excluded.map((id) => `<span class="tok" style="cursor:default">${esc(dispName(id))}</span>`).join('');
+      // 제외 인원도 눌러서 게임 인원과 맞바꿀 수 있다 (제외 라운드 게임 배정은 경고로만 표시)
+      const excludedToks = rd.excluded.map((id, xi) => tok(id, r, `x:${xi}`)).join('');
       const peopleToks = rd.lesson.map((id, li) => tok(id, r, `l:${li}`)).join('') + excludedToks;
       const lastCell = isReg
         ? regularCCell(rd, regLay, gameInners[courtCols] || '', peopleToks)
@@ -1590,7 +1592,7 @@ function renderResult() {
     '📏': '📏 점수차 상한 초과',
     '💤': '💤 연속 결장',
     '⚠️': '⚠️ 중복 배정·게임 구성 오류',
-    '⛔': '⛔ 제외 인원 배정',
+    '⛔': '⛔ 제외 라운드인데 게임 배정(수동 교체)',
   };
   const legendItems = Object.keys(ICON_DESC).filter((ic) => usedIcons.has(ic)).map((ic) => ICON_DESC[ic]);
   const legendHtml = legendItems.length ? `<div class="badge-legend">위반 표시: ${legendItems.join(' · ')}</div>` : '';
@@ -1642,7 +1644,7 @@ function renderResult() {
       ${warnHtml ? `<div class="note-side">${warnHtml}</div>` : ''}
     </div>
     ${errHtml}${relaxHtml}
-    ${isTour ? renderAliasPanel() : `<div class="hint no-print">선수 이름 두 개를 차례로 누르면 자리를 맞바꿉니다 (라운드·성별 제한 없음 — 규칙에 어긋나면 경고로 알려드립니다).</div>`}
+    ${isTour ? renderAliasPanel() : `<div class="hint no-print">선수 이름 두 개를 차례로 누르면 자리를 맞바꿉니다 (라운드·성별·라운드 제외 인원 제한 없음 — 규칙에 어긋나면 경고로 알려드립니다).</div>`}
     <div class="statline">
       파트너 중복 <b>${res.stats.partnerRepeats}</b>회 ·
       같은 상대 최대 <b>${res.stats.maxMeet}</b>번${isTour ? '' : ` · 게임 점수차 평균 <b>${res.stats.scoreDiffAvg.toFixed(1)}</b> / 최대 <b>${res.stats.scoreDiffMax}</b>`}
@@ -2668,9 +2670,10 @@ function locRef(rd, loc) {
     };
   }
   const li = +parts[1];
+  const list = parts[0] === 'x' ? (rd.excluded || (rd.excluded = [])) : rd.lesson; // 'x' = 라운드 제외 인원
   return {
-    get: () => rd.lesson[li],
-    set: (v) => (rd.lesson[li] = v),
+    get: () => list[li],
+    set: (v) => (list[li] = v),
   };
 }
 
@@ -2781,16 +2784,19 @@ function swapMembers(a, b) {
     : `${nameA} 대신 ${nameB} 참석${inBracket ? ' — 대진표의 자리를 그대로 이어받았습니다' : ''}.`);
 }
 
-// 각 라운드의 레슨/대기 명단 = 그 라운드 게임에 없는 & 제외되지 않은 참가자 (명단 순서)
+// 각 라운드의 레슨/대기·제외 명단을 게임 배정에서 다시 계산 (명단 순서):
+//  제외 = 그 라운드 제외 설정인데 게임에 없는 인원 / 레슨·대기 = 그 외 게임에 없는 인원.
+// 수동 교체로 제외 인원이 게임에 들어가면 제외 칸에서 빠지고(경고 표시), 밀려난 사람은 레슨/대기로 간다.
 function recomputeLessons() {
   const res = state.result;
   if (!res || !res.plan) return;
-  const order = res.plan.players.map((p) => p.id);
-  res.rounds.forEach((rd) => {
+  const players = res.plan.players;
+  res.rounds.forEach((rd, r) => {
     const inGame = new Set();
     rd.games.forEach((g) => g.teams.forEach((t) => t.forEach((id) => inGame.add(id))));
-    const excluded = new Set(rd.excluded || []);
-    rd.lesson = order.filter((id) => !inGame.has(id) && !excluded.has(id));
+    const out = players.filter((p) => !inGame.has(p.id));
+    rd.excluded = out.filter((p) => p.unavailable.has(r)).map((p) => p.id);
+    rd.lesson = out.filter((p) => !p.unavailable.has(r)).map((p) => p.id);
   });
 }
 

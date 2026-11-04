@@ -324,6 +324,34 @@ def t_exclude_is_lesson(app: App):
     check(not app.errors, f"런타임 에러 발생: {app.errors[:3]}")
 
 
+@scenario("라운드 제외 인원도 수동 교체 가능 — 오류 대신 경고만")
+def t_swap_excluded(app: App):
+    roster = seed_roster(7, 7)
+    ids = [p["id"] for p in roster["men"] + roster["women"]]
+    app.open(roster, attend={"selectedIds": ids, "excludeOverrides": {"tm1": [3]}},
+             settings={"meetingType": "regular", "rounds": 5})
+    app.generate()
+    page = app.page
+    ex = page.locator('[data-tok="tm1"][data-round="2"]')
+    check(ex.count() == 1 and ex.get_attribute("data-loc").startswith("x:"), "3R 제외 인원이 눌러지는 이름으로 표시되지 않음")
+    target = page.locator('[data-round="2"][data-loc="g:0:0:0"]')
+    target_id = target.get_attribute("data-tok")
+    ex.click()
+    target.click()
+    in_game = page.locator('[data-tok="tm1"][data-round="2"]').get_attribute("data-loc")
+    check(in_game == "g:0:0:0", f"제외 인원이 게임 자리로 들어가지 않음: {in_game}")
+    moved = page.locator(f'[data-tok="{target_id}"][data-round="2"]').get_attribute("data-loc")
+    check(moved.startswith("l:"), f"밀려난 사람이 레슨으로 가지 않음: {moved}")
+    check(not app.error_banners(), f"제외 인원 교체가 규칙 위반(오류)으로 표시됨: {app.error_banners()}")
+    check(any("수동 교체" in b for b in app.banners()), f"제외 인원 게임 배정 경고가 없음: {app.banners()}")
+    check("⛔" in page.locator('[data-tok="tm1"][data-round="2"]').text_content(), "⛔ 표시가 없음")
+    # 되돌리기 → 다시 제외 칸으로
+    page.locator("#undo").click()
+    back = page.locator('[data-tok="tm1"][data-round="2"]').get_attribute("data-loc")
+    check(back.startswith("x:"), f"되돌리기 후 제외 칸으로 돌아가지 않음: {back}")
+    check(not app.errors, f"런타임 에러 발생: {app.errors[:3]}")
+
+
 @scenario("앵그리대회 — 별칭(남1·여1) 대진표로 생성된다")
 def t_tournament(app: App):
     roster = seed_roster(6, 6)

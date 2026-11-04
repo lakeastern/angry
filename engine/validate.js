@@ -24,6 +24,8 @@ export function computeStats(schedule, plan) {
   const partnerCount = new Map();
   const meetCount = new Map();
   const structural = [];
+  // 제외 라운드인데 게임에 배정됨 — 엔진은 만들지 않고, 관리자가 수동 교체로 허용한 경우만 생긴다 (경고)
+  const excludedAssigned = [];
   const gameDiffs = [];
   let scoreDiffSum = 0;
   const opt = plan.options || {};
@@ -44,7 +46,7 @@ export function computeStats(schedule, plan) {
       seen.set(id, (seen.get(id) || 0) + 1);
       const p = byId.get(id);
       if (p.unavailable.has(r)) {
-        structural.push({ code: 'E_EXCLUDED_ASSIGNED', round: r, players: [id], message: `${r + 1}라운드에서 제외된 ${p.label}이(가) ${where}에 배정되었습니다.` });
+        excludedAssigned.push({ round: r, id, where });
       }
     };
 
@@ -161,8 +163,10 @@ export function computeStats(schedule, plan) {
   for (const p of plan.players) {
     // 정기모임: 라운드 제외(게임 대신 레슨, 게임온리는 휴식)도 결장으로 친다.
     // 단 제외↔제외(둘 다 사용자가 지정)는 배정으로 피할 수 없으므로 연속 결장으로 보지 않는다.
+    // (수동 교체로 제외 라운드에 게임을 한 경우는 결장이 아니다)
+    const played = new Set(per.get(p.id).gameRounds);
     const excl = schedule.type === 'regular'
-      ? [...p.unavailable].filter((r) => r >= 0 && r < R)
+      ? [...p.unavailable].filter((r) => r >= 0 && r < R && !played.has(r))
       : [];
     const rounds = [...new Set([...per.get(p.id).sitRounds, ...excl])].sort((a, b) => a - b);
     for (let i = 1; i < rounds.length; i++) {
@@ -204,7 +208,9 @@ export function computeStats(schedule, plan) {
     : [];
   const lessonWindow = lessonRoundList.slice(0, 3); // 로테이션 기준: 첫 레슨 라운드 3개
   // 라운드 제외 = 그 라운드는 게임 대신 레슨(게임온리 라운드는 휴식) → 레슨 라운드의 제외도 레슨 1회로 친다
-  const hadLessonIn = (p, list) => per.get(p.id).sitRounds.some((r) => list.includes(r)) || list.some((r) => p.unavailable.has(r));
+  const hadLessonIn = (p, list) =>
+    per.get(p.id).sitRounds.some((r) => list.includes(r)) ||
+    list.some((r) => p.unavailable.has(r) && !per.get(p.id).gameRounds.includes(r));
   if (schedule.type === 'regular' && lessonWindow.length >= 3) {
     for (const g of ['M', 'W']) {
       const members = plan.players.filter((p) => p.gender === g);
@@ -375,6 +381,7 @@ export function computeStats(schedule, plan) {
     partnerCount,
     meetCount,
     structural,
+    excludedAssigned,
     partnerRepeats,
     repeatedPartners,
     meetCapViolations,
@@ -411,6 +418,13 @@ export function validateSchedule(schedule, plan) {
   const label = (id) => (byId.has(id) ? byId.get(id).label : id);
 
   for (const s of stats.structural) errors.push({ code: s.code, message: s.message });
+  // 제외 라운드 게임 배정은 수동 교체로만 생기며 허용한다 — 오류가 아닌 경고
+  for (const x of stats.excludedAssigned) {
+    warnings.push({
+      code: 'W_EXCLUDED_PLAYING',
+      message: `${x.round + 1}라운드 제외로 설정된 ${label(x.id)}이(가) ${x.where}에 배정되었습니다 (수동 교체).`,
+    });
+  }
 
   for (const rp of stats.repeatedPartners) {
     errors.push({
