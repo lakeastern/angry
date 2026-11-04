@@ -174,10 +174,9 @@ class App:
             if (!t) return [];
             return [...t.rows].slice(1).map(r => {
                 const c = [...r.cells].map(x => x.textContent.trim());
-                // 게임 칸은 "2(1·3)" 형식 — 게임 수와 참여 라운드를 나눠 담는다
-                const m = c[1].match(/^(\d+)(?:\(([\d·]+)\))?$/);
-                return { name: c[0], games: m ? Number(m[1]) : NaN, gameRounds: m && m[2] ? m[2].split('·').map(Number) : [],
-                         mixed: Number(c[2]), wait: Number(c[3]) };
+                // 열: 선수 · 게임(횟수) · 라운드(예: 1·3, 없으면 –) · 혼복 · 레슨/대기
+                return { name: c[0], games: Number(c[1]), gameRounds: /^[\d·]+$/.test(c[2]) ? c[2].split('·').map(Number) : [],
+                         mixed: Number(c[3]), wait: Number(c[4]) };
             });
         }""")
 
@@ -345,7 +344,9 @@ def t_swap_excluded(app: App):
     check(in_game == "g:0:0:0", f"제외 인원이 게임 자리로 들어가지 않음: {in_game}")
     moved = page.locator(f'[data-tok="{target_id}"][data-round="2"]').get_attribute("data-loc")
     check(moved.startswith("l:"), f"밀려난 사람이 레슨으로 가지 않음: {moved}")
-    check(not app.error_banners(), f"제외 인원 교체가 규칙 위반(오류)으로 표시됨: {app.error_banners()}")
+    # (수동 교체라 파트너 중복 등 다른 규칙 위반은 생길 수 있다 — 제외 관련 오류만 없으면 된다)
+    excl_err = [b for b in app.error_banners() if "제외" in b]
+    check(not excl_err, f"제외 인원 교체가 규칙 위반(오류)으로 표시됨: {excl_err}")
     check(any("수동 교체" in b for b in app.banners()), f"제외 인원 게임 배정 경고가 없음: {app.banners()}")
     check("⛔" in page.locator('[data-tok="tm1"][data-round="2"]').text_content(), "⛔ 표시가 없음")
     # 되돌리기 → 다시 제외 칸으로
@@ -355,7 +356,7 @@ def t_swap_excluded(app: App):
     check(not app.errors, f"런타임 에러 발생: {app.errors[:3]}")
 
 
-@scenario("통계표 게임 칸 — 게임 수와 참여 라운드를 \"2(1·3)\" 형식으로")
+@scenario("통계표 — 게임 횟수 옆 '라운드' 열에 참여 라운드(1·3)")
 def t_game_rounds_cell(app: App):
     roster = seed_roster(7, 7)
     app.open(roster, settings={"meetingType": "regular", "rounds": 5})
@@ -367,6 +368,8 @@ def t_game_rounds_cell(app: App):
     actual = {}
     for pid, rnd in slots:
         actual.setdefault(names[pid], []).append(rnd)
+    head = app.page.evaluate("""() => { const t = [...document.querySelectorAll('table')].find(x => x.rows.length && /선수/.test(x.rows[0].textContent) && /게임/.test(x.rows[0].textContent)); return [...t.rows[0].cells].map(c => c.textContent.trim()); }""")
+    check(head[1:3] == ["게임", "라운드"], f"게임 오른쪽에 '라운드' 열이 없음: {head}")
     stats = app.per_player()
     check(stats and all(s["games"] == len(s["gameRounds"]) for s in stats), f"게임 수와 라운드 개수가 다름: {stats[:3]}")
     for s in stats:

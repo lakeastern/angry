@@ -42,6 +42,7 @@
   .swapbar { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 8px 10px; margin: 6px 0; font-size: 0.88rem; }
   .detail-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
   .detail-table th, .detail-table td { border-bottom: 1px solid #eee; padding: 5px 6px; text-align: center; }
+  .detail-table td.grounds { white-space: nowrap; color: var(--muted); } /* 통계표: 게임에 들어간 라운드 (예: 1·3) */
   /* 랭킹 표: 컬럼폭은 내용(글씨)에 맞추고, 좁은 화면에서는 가로 스크롤로 넘겨 본다 */
   .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 6px; }
   .rank-table { width: auto; max-width: none; }
@@ -232,7 +233,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-11-04 16:05</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-11-04 16:11</span></div>
 <div id="toast"></div>
 <script type="module" src="./app.js"></script>
 </body>

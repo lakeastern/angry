@@ -1571,8 +1571,8 @@ function renderResult() {
   // 게임온리 라운드의 휴식(라운드 제외 포함)은 레슨이 아니므로 세지 않는다.
   const lessonCount = (id) => res.rounds.filter((rd) => !rd.gameOnly && (rd.lesson.includes(id) || (rd.excluded || []).includes(id))).length;
   const sitCount = (id, s) => (isReg ? lessonCount(id) : s.sits);
-  // 게임 수 + 참여 라운드: 예) 1·3라운드에 게임 → "2(1·3)"
-  const gameCell = (s) => (s.games ? `${s.games}(${[...s.gameRounds].sort((a, b) => a - b).map((r) => r + 1).join('·')})` : '0');
+  // 게임에 들어간 라운드: 예) 1·3라운드에 게임 → "1·3" (게임 0이면 –)
+  const gameRoundsCell = (s) => (s.games ? [...s.gameRounds].sort((a, b) => a - b).map((r) => r + 1).join('·') : '–');
   const statRows = [...res.stats.perPlayer.entries()]
     .filter(([id, s]) => s.games + s.sits > 0 || (isReg && lessonCount(id) > 0))
     .map(([id, s]) => {
@@ -1580,7 +1580,7 @@ function renderResult() {
       const p = m.prefs || {};
       const icons = `${p.gamePriority ? '⚡' : ''}${p.newMember ? '🔰' : ''}${p.mixedPreferred ? '💞' : ''}`;
       const mixedCell = hasJapbok ? `${s.mixed + (s.japbok || 0)}(${s.japbok || 0})` : s.mixed;
-      return `<tr><td style="color:${genderOf(id) === 'M' ? 'var(--men)' : 'var(--women)'}">${esc(dispName(id))} <span class="preficon">${icons}</span></td><td>${gameCell(s)}</td><td>${mixedCell}</td><td>${sitCount(id, s)}</td></tr>`;
+      return `<tr><td style="color:${genderOf(id) === 'M' ? 'var(--men)' : 'var(--women)'}">${esc(dispName(id))} <span class="preficon">${icons}</span></td><td>${s.games}</td><td class="grounds">${gameRoundsCell(s)}</td><td>${mixedCell}</td><td>${sitCount(id, s)}</td></tr>`;
     })
     .join('');
 
@@ -1652,7 +1652,7 @@ function renderResult() {
       같은 상대 최대 <b>${res.stats.maxMeet}</b>번${isTour ? '' : ` · 게임 점수차 평균 <b>${res.stats.scoreDiffAvg.toFixed(1)}</b> / 최대 <b>${res.stats.scoreDiffMax}</b>`}
     </div>
     <table class="detail-table" style="max-width:360px">
-      <tr><th>선수</th><th>게임</th><th>${hasJapbok ? '혼복(잡복)' : '혼복'}</th><th>${isReg ? '레슨' : '대기'}</th></tr>
+      <tr><th>선수</th><th>게임</th><th>라운드</th><th>${hasJapbok ? '혼복(잡복)' : '혼복'}</th><th>${isReg ? '레슨' : '대기'}</th></tr>
       ${statRows}
     </table>
   </section>`;
