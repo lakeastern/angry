@@ -160,6 +160,10 @@ export function computeStats(schedule, plan) {
   // 연속 결장(레슨/대기)
   let consecutiveSits = 0;
   const consecutiveSitList = [];
+  // 3라운드 이상 연속 결장: 길이 L 인 연속 구간마다 (L−2)를 더한다 (3연속=1, 4연속=2…).
+  // 2연속 두 번보다 3연속 한 번이 훨씬 나쁘므로 연속 결장 횟수와 별도로 우선 최소화한다.
+  let longSitRuns = 0;
+  let maxSitRun = 0;
   for (const p of plan.players) {
     // 정기모임: 라운드 제외(게임 대신 레슨, 게임온리는 휴식)도 결장으로 친다.
     // 단 제외↔제외(둘 다 사용자가 지정)는 배정으로 피할 수 없으므로 연속 결장으로 보지 않는다.
@@ -169,10 +173,17 @@ export function computeStats(schedule, plan) {
       ? [...p.unavailable].filter((r) => r >= 0 && r < R && !played.has(r))
       : [];
     const rounds = [...new Set([...per.get(p.id).sitRounds, ...excl])].sort((a, b) => a - b);
+    let run = rounds.length ? 1 : 0;
+    maxSitRun = Math.max(maxSitRun, run);
     for (let i = 1; i < rounds.length; i++) {
       if (rounds[i] === rounds[i - 1] + 1 && !(p.unavailable.has(rounds[i]) && p.unavailable.has(rounds[i - 1]))) {
         consecutiveSits++;
         consecutiveSitList.push({ id: p.id, rounds: [rounds[i - 1], rounds[i]] });
+        run++;
+        if (run >= 3) longSitRuns++;
+        maxSitRun = Math.max(maxSitRun, run);
+      } else {
+        run = 1;
       }
     }
   }
@@ -391,6 +402,14 @@ export function computeStats(schedule, plan) {
     frequentOpponents,
     consecutiveSits,
     consecutiveSitList,
+    longSitRuns,
+    maxSitRun,
+    // 연속 결장이 불가피할 때 한 사람에게 몰리지 않도록: 사람별 (연속 결장 횟수 − 1)의 합
+    consecutiveSitExcess: (() => {
+      const cnt = new Map();
+      consecutiveSitList.forEach((c) => cnt.set(c.id, (cnt.get(c.id) || 0) + 1));
+      return [...cnt.values()].reduce((a, v) => a + Math.max(0, v - 1), 0);
+    })(),
     spreadPenalty,
     spreadDetails,
     rotationMiss,

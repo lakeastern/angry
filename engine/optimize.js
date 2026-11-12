@@ -17,7 +17,9 @@ export function costOf(schedule, plan) {
     st.partnerRepeats, // 하드: 파트너 중복 0 (성별 무시 폴백에선 이미 완화되어 남복vs여복 제거를 위해 양보)
     isMT ? st.spreadPenalty : 0, // [게임데이·앵그리대회] 인당 게임 수 편차 최우선
     st.japbokGames, // 잡복 게임 수 최소화 (성별 무시 편성 시에만 >0, 게임 수 다음으로 중요)
+    st.longSitRuns, // 3라운드 이상 연속 결장 — 연속 결장이 불가피해도 3연속은 최우선으로 피한다
     st.consecutiveSits * 2 + (isMT ? 0 : st.spreadPenalty * 2), // 연속 결장 (정기는 게임 수 편차 동반)
+    st.consecutiveSitExcess, // 불가피한 연속 결장은 여러 사람에게 고르게 (한 사람이 두 번 겪지 않게)
     st.rankerMiss, // 랭커 라운드: 상위 풀 멤버로 구성된 랭커 게임 보장
     st.diffCapViolations + st.meetCapViolations, // 점수차·같은 상대 상한(설정) 위반
     st.rotationMiss + st.newMemberLessonMiss, // 레슨 로테이션(정기)

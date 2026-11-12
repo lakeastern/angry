@@ -21,6 +21,9 @@ export function constructSchedule(plan, rng, opts = {}) {
   const partnersUsed = new Map(); // pairKey → 횟수
   const meets = new Map(); // pairKey → 상대로 만난 횟수
   let satPrev = new Set();
+  // 연속 결장이 불가피할 때(완화 단계) 고르게 나누기 위한 기록
+  const sitRun = new Map(); // id → 현재 연속 결장 길이
+  const consecCount = new Map(); // id → 지금까지 겪은 연속 결장 횟수
   for (const p of plan.players) {
     games.set(p.id, 0);
     sits.set(p.id, 0);
@@ -138,6 +141,12 @@ export function constructSchedule(plan, rng, opts = {}) {
     }
     // 라운드 제외 = 게임 대신 레슨(게임온리 라운드는 휴식) → 레슨 라운드 제외자는 레슨을 받은 것으로 본다
     if (!gameOnly) excluded.forEach((id) => lessoned.add(id));
+    const sitNow = new Set(built.sitters.map((p) => p.id));
+    for (const p of plan.players) {
+      const run = sitNow.has(p.id) ? (sitRun.get(p.id) || 0) + 1 : 0;
+      if (run >= 2) consecCount.set(p.id, (consecCount.get(p.id) || 0) + 1);
+      sitRun.set(p.id, run);
+    }
     satPrev = new Set(built.sitters.map((p) => p.id));
     if (plan.type === 'regular') excluded.forEach((id) => satPrev.add(id)); // 제외 = 결장 → 다음 라운드 출전
     const roundOut = {
@@ -307,19 +316,20 @@ export function constructSchedule(plan, rng, opts = {}) {
 
     function pickSitters(pool, count) {
       if (count <= 0) return [];
-      let cands = pool.filter((p) => !requiredIds.has(p.id));
-      if (cands.length < count) {
-        if (!allowConsecutiveSit) return null;
-        const extra = pool
-          .filter((p) => requiredIds.has(p.id))
-          .sort((a, b) => sits.get(a.id) - sits.get(b.id) + rng.jitter(0.5));
-        cands = cands.concat(extra);
-      }
-      return cands
+      const free = pool
+        .filter((p) => !requiredIds.has(p.id))
         .map((p) => ({ p, s: sitScore(p) }))
         .sort((a, b) => b.s - a.s)
-        .slice(0, count)
         .map((o) => o.p);
+      if (free.length >= count) return free.slice(0, count);
+      if (!allowConsecutiveSit) return null;
+      // 직전 라운드에 쉰 사람은 정말 모자랄 때만 또 쉬게 한다 (연속 결장 최소화).
+      // 그중에서도 3연속이 되는 사람은 맨 뒤, 연속 결장을 덜 겪은 사람·게임을 더 한 사람 우선.
+      const extraKey = (p) => ((sitRun.get(p.id) || 0) >= 2 ? 1000 : 0) + (consecCount.get(p.id) || 0) * 10 - games.get(p.id) * 0.1;
+      const extra = pool
+        .filter((p) => requiredIds.has(p.id))
+        .sort((a, b) => extraKey(a) - extraKey(b) + rng.jitter(0.5));
+      return free.concat(extra.slice(0, count - free.length));
     }
 
     // 결장 우선순위: 게임 수 많음 > (정기 초반) 미레슨자 > 신규회원 레슨 특전 > 게임선호는 후순위.

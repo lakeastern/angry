@@ -83,7 +83,7 @@ function generateStrict(config, seed, rng, budget) {
     { add: { allowConsecutiveSit: true, minMixedGames: 0, allowPartnerRepeat: true }, relax: ['연속 결장', '인당 최소 혼복', '파트너 중복'] },
     { add: { allowConsecutiveSit: true, minMixedGames: 0, allowPartnerRepeat: true, ignoreGender: true }, relax: ['연속 결장', '인당 최소 혼복', '파트너 중복', '잡복(성별 무시 편성)'] },
   ];
-  let best = null, bestSpread = Infinity, bestPlan = null, lastErr = null;
+  let best = null, bestSpread = Infinity, bestPlan = null, bestStage = null, lastErr = null;
   for (const stage of ladder) {
     let plan;
     try {
@@ -101,10 +101,18 @@ function generateStrict(config, seed, rng, budget) {
     const s = solvePlan(plan, rng, stageBudget, stage.add);
     if (!s) continue;
     const spread = gameSpread(s, plan);
-    if (spread < bestSpread) { best = s; bestSpread = spread; bestPlan = plan; }
+    if (spread < bestSpread) { best = s; bestSpread = spread; bestPlan = plan; bestStage = stage; }
     if (spread <= achievable) break; // 목표 달성 → 더 완화하지 않음
   }
   if (!best) throw lastErr || new SchedulerError('대진표를 구성하지 못했습니다. 인원·게임 수 설정을 조정해 주세요.');
+
+  // 연속 결장이 불가피해 남은 경우(예: 1코트 소인원): 같은 단계로 한 번 더 탐색해
+  // 3연속 제거 → 연속 결장 최소화 → 여러 사람에게 고르게 나누기를 더 다듬는다.
+  const st0 = computeStats(best, bestPlan);
+  if (st0.consecutiveSits > 0) {
+    const s2 = solvePlan(bestPlan, rng, budget, bestStage.add);
+    if (s2 && gameSpread(s2, bestPlan) <= bestSpread && cmpCost(costOf(s2, bestPlan), costOf(best, bestPlan)) < 0) best = s2;
+  }
 
   hillClimb(best, bestPlan, rng, budget.polish);
   const { errors, warnings, stats } = validateSchedule(best, bestPlan);

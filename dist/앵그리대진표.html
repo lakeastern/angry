@@ -233,7 +233,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-11-04 16:11</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-11-12 22:54</span></div>
 <div id="toast"></div>
 <script>
 'use strict';
@@ -437,6 +437,10 @@ function computeStats(schedule, plan) {
   // 연속 결장(레슨/대기)
   let consecutiveSits = 0;
   const consecutiveSitList = [];
+  // 3라운드 이상 연속 결장: 길이 L 인 연속 구간마다 (L−2)를 더한다 (3연속=1, 4연속=2…).
+  // 2연속 두 번보다 3연속 한 번이 훨씬 나쁘므로 연속 결장 횟수와 별도로 우선 최소화한다.
+  let longSitRuns = 0;
+  let maxSitRun = 0;
   for (const p of plan.players) {
     // 정기모임: 라운드 제외(게임 대신 레슨, 게임온리는 휴식)도 결장으로 친다.
     // 단 제외↔제외(둘 다 사용자가 지정)는 배정으로 피할 수 없으므로 연속 결장으로 보지 않는다.
@@ -446,10 +450,17 @@ function computeStats(schedule, plan) {
       ? [...p.unavailable].filter((r) => r >= 0 && r < R && !played.has(r))
       : [];
     const rounds = [...new Set([...per.get(p.id).sitRounds, ...excl])].sort((a, b) => a - b);
+    let run = rounds.length ? 1 : 0;
+    maxSitRun = Math.max(maxSitRun, run);
     for (let i = 1; i < rounds.length; i++) {
       if (rounds[i] === rounds[i - 1] + 1 && !(p.unavailable.has(rounds[i]) && p.unavailable.has(rounds[i - 1]))) {
         consecutiveSits++;
         consecutiveSitList.push({ id: p.id, rounds: [rounds[i - 1], rounds[i]] });
+        run++;
+        if (run >= 3) longSitRuns++;
+        maxSitRun = Math.max(maxSitRun, run);
+      } else {
+        run = 1;
       }
     }
   }
@@ -668,6 +679,14 @@ function computeStats(schedule, plan) {
     frequentOpponents,
     consecutiveSits,
     consecutiveSitList,
+    longSitRuns,
+    maxSitRun,
+    // 연속 결장이 불가피할 때 한 사람에게 몰리지 않도록: 사람별 (연속 결장 횟수 − 1)의 합
+    consecutiveSitExcess: (() => {
+      const cnt = new Map();
+      consecutiveSitList.forEach((c) => cnt.set(c.id, (cnt.get(c.id) || 0) + 1));
+      return [...cnt.values()].reduce((a, v) => a + Math.max(0, v - 1), 0);
+    })(),
     spreadPenalty,
     spreadDetails,
     rotationMiss,
@@ -1029,6 +1048,9 @@ function constructSchedule(plan, rng, opts = {}) {
   const partnersUsed = new Map(); // pairKey → 횟수
   const meets = new Map(); // pairKey → 상대로 만난 횟수
   let satPrev = new Set();
+  // 연속 결장이 불가피할 때(완화 단계) 고르게 나누기 위한 기록
+  const sitRun = new Map(); // id → 현재 연속 결장 길이
+  const consecCount = new Map(); // id → 지금까지 겪은 연속 결장 횟수
   for (const p of plan.players) {
     games.set(p.id, 0);
     sits.set(p.id, 0);
@@ -1146,6 +1168,12 @@ function constructSchedule(plan, rng, opts = {}) {
     }
     // 라운드 제외 = 게임 대신 레슨(게임온리 라운드는 휴식) → 레슨 라운드 제외자는 레슨을 받은 것으로 본다
     if (!gameOnly) excluded.forEach((id) => lessoned.add(id));
+    const sitNow = new Set(built.sitters.map((p) => p.id));
+    for (const p of plan.players) {
+      const run = sitNow.has(p.id) ? (sitRun.get(p.id) || 0) + 1 : 0;
+      if (run >= 2) consecCount.set(p.id, (consecCount.get(p.id) || 0) + 1);
+      sitRun.set(p.id, run);
+    }
     satPrev = new Set(built.sitters.map((p) => p.id));
     if (plan.type === 'regular') excluded.forEach((id) => satPrev.add(id)); // 제외 = 결장 → 다음 라운드 출전
     const roundOut = {
@@ -1315,19 +1343,20 @@ function constructSchedule(plan, rng, opts = {}) {
 
     function pickSitters(pool, count) {
       if (count <= 0) return [];
-      let cands = pool.filter((p) => !requiredIds.has(p.id));
-      if (cands.length < count) {
-        if (!allowConsecutiveSit) return null;
-        const extra = pool
-          .filter((p) => requiredIds.has(p.id))
-          .sort((a, b) => sits.get(a.id) - sits.get(b.id) + rng.jitter(0.5));
-        cands = cands.concat(extra);
-      }
-      return cands
+      const free = pool
+        .filter((p) => !requiredIds.has(p.id))
         .map((p) => ({ p, s: sitScore(p) }))
         .sort((a, b) => b.s - a.s)
-        .slice(0, count)
         .map((o) => o.p);
+      if (free.length >= count) return free.slice(0, count);
+      if (!allowConsecutiveSit) return null;
+      // 직전 라운드에 쉰 사람은 정말 모자랄 때만 또 쉬게 한다 (연속 결장 최소화).
+      // 그중에서도 3연속이 되는 사람은 맨 뒤, 연속 결장을 덜 겪은 사람·게임을 더 한 사람 우선.
+      const extraKey = (p) => ((sitRun.get(p.id) || 0) >= 2 ? 1000 : 0) + (consecCount.get(p.id) || 0) * 10 - games.get(p.id) * 0.1;
+      const extra = pool
+        .filter((p) => requiredIds.has(p.id))
+        .sort((a, b) => extraKey(a) - extraKey(b) + rng.jitter(0.5));
+      return free.concat(extra.slice(0, count - free.length));
     }
 
     // 결장 우선순위: 게임 수 많음 > (정기 초반) 미레슨자 > 신규회원 레슨 특전 > 게임선호는 후순위.
@@ -1513,7 +1542,9 @@ function costOf(schedule, plan) {
     st.partnerRepeats, // 하드: 파트너 중복 0 (성별 무시 폴백에선 이미 완화되어 남복vs여복 제거를 위해 양보)
     isMT ? st.spreadPenalty : 0, // [게임데이·앵그리대회] 인당 게임 수 편차 최우선
     st.japbokGames, // 잡복 게임 수 최소화 (성별 무시 편성 시에만 >0, 게임 수 다음으로 중요)
+    st.longSitRuns, // 3라운드 이상 연속 결장 — 연속 결장이 불가피해도 3연속은 최우선으로 피한다
     st.consecutiveSits * 2 + (isMT ? 0 : st.spreadPenalty * 2), // 연속 결장 (정기는 게임 수 편차 동반)
+    st.consecutiveSitExcess, // 불가피한 연속 결장은 여러 사람에게 고르게 (한 사람이 두 번 겪지 않게)
     st.rankerMiss, // 랭커 라운드: 상위 풀 멤버로 구성된 랭커 게임 보장
     st.diffCapViolations + st.meetCapViolations, // 점수차·같은 상대 상한(설정) 위반
     st.rotationMiss + st.newMemberLessonMiss, // 레슨 로테이션(정기)
@@ -1708,7 +1739,7 @@ function generateStrict(config, seed, rng, budget) {
     { add: { allowConsecutiveSit: true, minMixedGames: 0, allowPartnerRepeat: true }, relax: ['연속 결장', '인당 최소 혼복', '파트너 중복'] },
     { add: { allowConsecutiveSit: true, minMixedGames: 0, allowPartnerRepeat: true, ignoreGender: true }, relax: ['연속 결장', '인당 최소 혼복', '파트너 중복', '잡복(성별 무시 편성)'] },
   ];
-  let best = null, bestSpread = Infinity, bestPlan = null, lastErr = null;
+  let best = null, bestSpread = Infinity, bestPlan = null, bestStage = null, lastErr = null;
   for (const stage of ladder) {
     let plan;
     try {
@@ -1726,10 +1757,18 @@ function generateStrict(config, seed, rng, budget) {
     const s = solvePlan(plan, rng, stageBudget, stage.add);
     if (!s) continue;
     const spread = gameSpread(s, plan);
-    if (spread < bestSpread) { best = s; bestSpread = spread; bestPlan = plan; }
+    if (spread < bestSpread) { best = s; bestSpread = spread; bestPlan = plan; bestStage = stage; }
     if (spread <= achievable) break; // 목표 달성 → 더 완화하지 않음
   }
   if (!best) throw lastErr || new SchedulerError('대진표를 구성하지 못했습니다. 인원·게임 수 설정을 조정해 주세요.');
+
+  // 연속 결장이 불가피해 남은 경우(예: 1코트 소인원): 같은 단계로 한 번 더 탐색해
+  // 3연속 제거 → 연속 결장 최소화 → 여러 사람에게 고르게 나누기를 더 다듬는다.
+  const st0 = computeStats(best, bestPlan);
+  if (st0.consecutiveSits > 0) {
+    const s2 = solvePlan(bestPlan, rng, budget, bestStage.add);
+    if (s2 && gameSpread(s2, bestPlan) <= bestSpread && cmpCost(costOf(s2, bestPlan), costOf(best, bestPlan)) < 0) best = s2;
+  }
 
   hillClimb(best, bestPlan, rng, budget.polish);
   const { errors, warnings, stats } = validateSchedule(best, bestPlan);

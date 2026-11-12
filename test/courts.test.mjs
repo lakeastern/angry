@@ -37,3 +37,37 @@ test('수동 1코트 — 전원 한 코트 순환', () => {
   const r = gen(mk(6, 6), 1);
   assert.ok(r.plan.courtsPerRound.every((c) => c === 1), '모든 라운드 1코트');
 });
+
+// 1코트처럼 연속 결장이 불가피한 구성: 3라운드 이상 연속 결장은 없어야 하고,
+// 연속 결장 총량은 이론상 최소에 가깝게, 한 사람에게 몰리지 않게.
+const sitRuns = (r) => {
+  let maxRun = 0;
+  for (const p of r.plan.players) {
+    let run = 0;
+    for (const rd of r.rounds) { run = rd.lesson.includes(p.id) ? run + 1 : 0; maxRun = Math.max(maxRun, run); }
+  }
+  return maxRun;
+};
+for (const [M, W] of [[3, 5], [4, 4], [2, 6], [3, 6]]) {
+  test(`1코트 ${M}남${W}여 — 3라운드 연속 결장 없음`, () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const r = generateSchedule({ type: 'monthly', gamesPerPerson: 4, players: mk(M, W), seed, options: { courts: 1 } });
+      assert.ok(sitRuns(r) <= 2, `seed ${seed}: ${sitRuns(r)}라운드 연속 결장`);
+      assert.equal(r.stats.longSitRuns, 0);
+      const games = [...r.stats.perPlayer.values()].map((s) => s.games);
+      assert.ok(Math.max(...games) - Math.min(...games) <= 1, '인당 게임 수 편차');
+    }
+  });
+}
+
+test('1코트 3남5여 — 연속 결장은 이론상 최소(라운드 전환당 1명)에 가깝고 한 사람에게 몰리지 않음', () => {
+  // 8명·1코트는 매 라운드 4명이 쉬고, 남3이라 매 게임이 혼복/여복 → 8라운드 전환 7번마다 최소 1명은 연속 결장
+  for (const seed of [1, 2, 3, 4, 5]) {
+    const r = generateSchedule({ type: 'monthly', gamesPerPerson: 4, players: mk(3, 5), seed, options: { courts: 1 } });
+    assert.equal(r.rounds.length, 8);
+    assert.ok(r.stats.consecutiveSits <= 8, `seed ${seed}: 연속 결장 ${r.stats.consecutiveSits}회 (최소 7)`);
+    const per = new Map();
+    r.stats.consecutiveSitList.forEach((c) => per.set(c.id, (per.get(c.id) || 0) + 1));
+    assert.ok(Math.max(0, ...per.values()) <= 1, `seed ${seed}: 한 사람이 연속 결장 ${Math.max(...per.values())}회`);
+  }
+});
