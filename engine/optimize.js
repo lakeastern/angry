@@ -8,6 +8,8 @@ export function costOf(schedule, plan) {
   // 게임데이·앵그리대회(내부 type 'monthly')는 인당 게임 수(균등) 조건이 핵심이라
   // 하드 제약 바로 아래 독립 계층으로 최우선 배치. 정기모임은 기존대로 연속 결장과 동반.
   const isMT = plan.type === 'monthly';
+  // 사용자가 잡복을 허용했으면(성별 구분 없이 편성) 연속 결장을 잡복보다 먼저 줄인다
+  const sitsFirst = !!(plan.options && plan.options.sitsOverJapbok);
   return [
     (st.structural.length + st.excludedAssigned.length) * 10, // 하드: 구조적 무결성 + 제외 라운드 미배정 (엔진 생성은 항상 0)
     // 남복 팀 vs 여복 팀(남남 vs 여여) 대진 금지. 게임 내 팀 분할만으로 항상 해소 가능하고
@@ -16,9 +18,10 @@ export function costOf(schedule, plan) {
     st.mmVsWwGames,
     st.partnerRepeats, // 하드: 파트너 중복 0 (성별 무시 폴백에선 이미 완화되어 남복vs여복 제거를 위해 양보)
     isMT ? st.spreadPenalty : 0, // [게임데이·앵그리대회] 인당 게임 수 편차 최우선
-    st.japbokGames, // 잡복 게임 수 최소화 (성별 무시 편성 시에만 >0, 게임 수 다음으로 중요)
+    sitsFirst ? 0 : st.japbokGames, // 잡복 게임 수 최소화 (성별 무시 편성 시에만 >0, 게임 수 다음으로 중요)
     st.longSitRuns, // 3라운드 이상 연속 결장 — 연속 결장이 불가피해도 3연속은 최우선으로 피한다
     st.consecutiveSits * 2 + (isMT ? 0 : st.spreadPenalty * 2), // 연속 결장 (정기는 게임 수 편차 동반)
+    sitsFirst ? st.japbokGames : 0, // 사용자가 잡복을 허용한 경우: 연속 결장을 먼저 줄인 뒤 잡복 최소화
     st.consecutiveSitExcess, // 불가피한 연속 결장은 여러 사람에게 고르게 (한 사람이 두 번 겪지 않게)
     st.rankerMiss, // 랭커 라운드: 상위 풀 멤버로 구성된 랭커 게임 보장
     st.diffCapViolations + st.meetCapViolations, // 점수차·같은 상대 상한(설정) 위반

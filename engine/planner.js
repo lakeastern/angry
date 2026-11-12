@@ -17,6 +17,9 @@ export const DEFAULT_OPTIONS = {
   allowConsecutiveSit: false, // 연속 결장 허용 (설정에 의한 강제 완화)
   allowPartnerRepeat: false, // 파트너 중복 허용 (설정에 의한 강제 완화)
   ignoreGender: false, // 성별 구분 없이 편성 (잡복 허용)
+  // 사용자가 "성별 구분 없이 편성"을 직접 켰는지 (scheduler 가 설정). 켰으면 연속 결장을 잡복보다 먼저 줄인다.
+  // 엔진이 인당 게임 수를 맞추려고 스스로 성별 무시로 완화한 경우는 false — 그때는 잡복을 최소로 쓴다.
+  sitsOverJapbok: false,
   strictGameCount: true, // 게임데이·앵그리대회: 인당 게임 수를 맞추기 위해 덜 중요한 제약부터 자동 완화(마지막 잡복)
   courts: null, // 게임데이·앵그리대회 코트 수 (null=자동 1~3, 또는 1~4 수동 지정)
   gameOnlyRounds: [], // 정기모임 게임온리 라운드 (1-based): c코트도 레슨 없이 게임 (코치 부재 등). 앱 기본값은 [1]

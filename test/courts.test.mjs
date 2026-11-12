@@ -71,3 +71,25 @@ test('1코트 3남5여 — 연속 결장은 이론상 최소(라운드 전환당
     assert.ok(Math.max(0, ...per.values()) <= 1, `seed ${seed}: 한 사람이 연속 결장 ${Math.max(...per.values())}회`);
   }
 });
+
+// 사용자가 "성별 구분 없이 편성"(잡복 허용)을 켜면 연속 결장을 잡복보다 먼저 줄인다
+test('1코트 3남5여 · 잡복 허용 — 연속 결장이 기본(7회)보다 크게 줄고, 배너로 알림', () => {
+  for (const seed of [1, 2, 3]) {
+    const base = generateSchedule({ type: 'monthly', gamesPerPerson: 4, players: mk(3, 5), seed, options: { courts: 1 } });
+    const ig = generateSchedule({ type: 'monthly', gamesPerPerson: 4, players: mk(3, 5), seed, options: { courts: 1, ignoreGender: true } });
+    assert.equal(base.stats.japbokGames, 0, '기본은 잡복 0');
+    assert.ok(ig.stats.consecutiveSits <= 4, `seed ${seed}: 잡복 허용인데 연속 결장 ${ig.stats.consecutiveSits}회`);
+    assert.ok(ig.stats.consecutiveSits < base.stats.consecutiveSits);
+    assert.equal(ig.stats.partnerRepeats, 0);
+    assert.equal(ig.stats.mmVsWwGames, 0, '남복 팀 vs 여복 팀은 여전히 금지');
+    assert.ok(ig.relaxationsApplied.some((m) => m.includes('연속 결장을 줄이기 위해 잡복')));
+  }
+});
+
+test('잡복 허용이어도 연속 결장이 없는 구성은 잡복을 늘리지 않는다 (3남9여 2코트)', () => {
+  for (const seed of [1, 2, 3, 4]) {
+    const r = generateSchedule({ type: 'monthly', gamesPerPerson: 4, players: mk(3, 9), seed, options: { courts: 2, ignoreGender: true } });
+    assert.equal(r.stats.consecutiveSits, 0);
+    assert.equal(r.plan.options.sitsOverJapbok, false, '연속 결장이 없으면 기본 우선순위 결과를 그대로 쓴다');
+  }
+});

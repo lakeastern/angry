@@ -233,7 +233,7 @@
 </head>
 <body>
 <div id="app"></div>
-<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-11-12 22:54</span></div>
+<div class="hint no-print" style="text-align:center;margin:18px 0 6px">앵그리 대진표 · 업데이트 <span id="bver">2026-11-12 23:10</span></div>
 <div id="toast"></div>
 <script>
 'use strict';
@@ -806,6 +806,9 @@ const DEFAULT_OPTIONS = {
   allowConsecutiveSit: false, // 연속 결장 허용 (설정에 의한 강제 완화)
   allowPartnerRepeat: false, // 파트너 중복 허용 (설정에 의한 강제 완화)
   ignoreGender: false, // 성별 구분 없이 편성 (잡복 허용)
+  // 사용자가 "성별 구분 없이 편성"을 직접 켰는지 (scheduler 가 설정). 켰으면 연속 결장을 잡복보다 먼저 줄인다.
+  // 엔진이 인당 게임 수를 맞추려고 스스로 성별 무시로 완화한 경우는 false — 그때는 잡복을 최소로 쓴다.
+  sitsOverJapbok: false,
   strictGameCount: true, // 게임데이·앵그리대회: 인당 게임 수를 맞추기 위해 덜 중요한 제약부터 자동 완화(마지막 잡복)
   courts: null, // 게임데이·앵그리대회 코트 수 (null=자동 1~3, 또는 1~4 수동 지정)
   gameOnlyRounds: [], // 정기모임 게임온리 라운드 (1-based): c코트도 레슨 없이 게임 (코치 부재 등). 앱 기본값은 [1]
@@ -1533,6 +1536,8 @@ function costOf(schedule, plan) {
   // 게임데이·앵그리대회(내부 type 'monthly')는 인당 게임 수(균등) 조건이 핵심이라
   // 하드 제약 바로 아래 독립 계층으로 최우선 배치. 정기모임은 기존대로 연속 결장과 동반.
   const isMT = plan.type === 'monthly';
+  // 사용자가 잡복을 허용했으면(성별 구분 없이 편성) 연속 결장을 잡복보다 먼저 줄인다
+  const sitsFirst = !!(plan.options && plan.options.sitsOverJapbok);
   return [
     (st.structural.length + st.excludedAssigned.length) * 10, // 하드: 구조적 무결성 + 제외 라운드 미배정 (엔진 생성은 항상 0)
     // 남복 팀 vs 여복 팀(남남 vs 여여) 대진 금지. 게임 내 팀 분할만으로 항상 해소 가능하고
@@ -1541,9 +1546,10 @@ function costOf(schedule, plan) {
     st.mmVsWwGames,
     st.partnerRepeats, // 하드: 파트너 중복 0 (성별 무시 폴백에선 이미 완화되어 남복vs여복 제거를 위해 양보)
     isMT ? st.spreadPenalty : 0, // [게임데이·앵그리대회] 인당 게임 수 편차 최우선
-    st.japbokGames, // 잡복 게임 수 최소화 (성별 무시 편성 시에만 >0, 게임 수 다음으로 중요)
+    sitsFirst ? 0 : st.japbokGames, // 잡복 게임 수 최소화 (성별 무시 편성 시에만 >0, 게임 수 다음으로 중요)
     st.longSitRuns, // 3라운드 이상 연속 결장 — 연속 결장이 불가피해도 3연속은 최우선으로 피한다
     st.consecutiveSits * 2 + (isMT ? 0 : st.spreadPenalty * 2), // 연속 결장 (정기는 게임 수 편차 동반)
+    sitsFirst ? st.japbokGames : 0, // 사용자가 잡복을 허용한 경우: 연속 결장을 먼저 줄인 뒤 잡복 최소화
     st.consecutiveSitExcess, // 불가피한 연속 결장은 여러 사람에게 고르게 (한 사람이 두 번 겪지 않게)
     st.rankerMiss, // 랭커 라운드: 상위 풀 멤버로 구성된 랭커 게임 보장
     st.diffCapViolations + st.meetCapViolations, // 점수차·같은 상대 상한(설정) 위반
@@ -1776,10 +1782,15 @@ function generateStrict(config, seed, rng, budget) {
   const applied = [];
   if (stats.consecutiveSits > 0) applied.push('연속 결장');
   if (stats.partnerRepeats > 0) applied.push('파트너 중복');
-  if (stats.japbokGames > 0) applied.push(`잡복 ${stats.japbokGames}게임 (불가피)`);
+  const sitsFirst = !!(config.options && config.options.sitsOverJapbok);
+  if (stats.japbokGames > 0 && !sitsFirst) applied.push(`잡복 ${stats.japbokGames}게임 (불가피)`);
   const relaxationsApplied = applied.length
     ? [`인당 게임 수를 맞추기 위해 최소한으로 완화했습니다: ${applied.join(' · ')}`]
     : [];
+  // 사용자가 잡복을 허용해 연속 결장을 줄이는 쪽을 택한 경우 — 그 사실을 따로 알린다
+  if (stats.japbokGames > 0 && sitsFirst) {
+    relaxationsApplied.push(`"성별 구분 없이 편성"이 켜져 있어 연속 결장을 줄이기 위해 잡복 ${stats.japbokGames}게임을 배정했습니다.`);
+  }
   return {
     type: bestPlan.type,
     rounds: best.rounds,
@@ -1793,6 +1804,25 @@ function generateStrict(config, seed, rng, budget) {
 }
 
 function generateSchedule(config) {
+  // 1차: 기본 우선순위(잡복 최소화가 연속 결장보다 먼저)
+  const base = generateOnce({ ...config, options: { ...(config.options || {}), sitsOverJapbok: false } });
+  // 사용자가 직접 "성별 구분 없이 편성"(잡복 허용)을 켰는데 연속 결장이 남았으면,
+  // 연속 결장을 잡복보다 먼저 줄이는 우선순위로 한 번 더 만들어 연속 결장이 더 적은 쪽을 쓴다.
+  // (엔진이 인당 게임 수 때문에 스스로 성별 무시로 완화한 경우는 해당 없음 — 그땐 잡복 최소가 우선)
+  // 연속 결장이 없는 대진은 1차 결과 그대로라 잡복이 늘지 않는다.
+  const userIgnoreGender = !!(config.options && config.options.ignoreGender);
+  if (userIgnoreGender && base.stats.consecutiveSits > 0) {
+    try {
+      const alt = generateOnce({ ...config, options: { ...(config.options || {}), sitsOverJapbok: true } });
+      if (alt.stats.consecutiveSits < base.stats.consecutiveSits) return alt;
+    } catch (e) {
+      // 대안 탐색 실패 시 1차 결과 사용
+    }
+  }
+  return base;
+}
+
+function generateOnce(config) {
   const seed = Number.isFinite(config.seed) ? config.seed >>> 0 : 20260718;
   const rng = makeRng(seed || 1);
   const budget = Object.assign({ restarts: 24, iters: 500, polish: 1500 }, config.searchBudget || {});
@@ -3603,7 +3633,7 @@ function renderSettings() {
         <label><input type="checkbox" id="opt-partner" ${s.allowPartnerRepeat ? 'checked' : ''}> 파트너 중복 허용</label>
         <span class="hint">라운드가 많거나 인원이 적어 같은 파트너가 불가피할 때</span>
         <label><input type="checkbox" id="opt-nogender" ${s.ignoreGender ? 'checked' : ''}> 성별 구분 없이 편성 (잡복 허용)</label>
-        <span class="hint">남녀 상관없이 실력 순위만으로 팀 구성 — 극단적 성비일 때 사용. 잡복은 허용하되 남복 팀 vs 여복 팀(남남 vs 여여) 대진은 만들지 않습니다</span>
+        <span class="hint">남녀 상관없이 실력 순위만으로 팀 구성 — 극단적 성비일 때 사용. 잡복은 허용하되 남복 팀 vs 여복 팀(남남 vs 여여) 대진은 만들지 않습니다. 1코트처럼 연속 결장이 불가피한 경우엔 잡복을 써서 연속 결장을 줄입니다</span>
         ${cloudAvailable() ? `
         <label>관리자 비밀번호 <input type="password" id="opt-pw" placeholder="${localStorage.getItem(K_KEY) ? '설정됨 · 변경하려면 입력' : '미설정'}" style="width:150px"> <button class="ghost mini2" id="pw-save">저장</button></label>
         <span class="hint">공유 링크 속 대진표 구성(설정·시드)이 이 비밀번호로 잠깁니다. 링크를 받아 이어서 편집할 사람(예: 회장)에게만 알려주세요. 변경하면 이전 링크의 구성은 복원할 수 없습니다.</span>` : ''}

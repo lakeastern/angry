@@ -120,10 +120,15 @@ function generateStrict(config, seed, rng, budget) {
   const applied = [];
   if (stats.consecutiveSits > 0) applied.push('연속 결장');
   if (stats.partnerRepeats > 0) applied.push('파트너 중복');
-  if (stats.japbokGames > 0) applied.push(`잡복 ${stats.japbokGames}게임 (불가피)`);
+  const sitsFirst = !!(config.options && config.options.sitsOverJapbok);
+  if (stats.japbokGames > 0 && !sitsFirst) applied.push(`잡복 ${stats.japbokGames}게임 (불가피)`);
   const relaxationsApplied = applied.length
     ? [`인당 게임 수를 맞추기 위해 최소한으로 완화했습니다: ${applied.join(' · ')}`]
     : [];
+  // 사용자가 잡복을 허용해 연속 결장을 줄이는 쪽을 택한 경우 — 그 사실을 따로 알린다
+  if (stats.japbokGames > 0 && sitsFirst) {
+    relaxationsApplied.push(`"성별 구분 없이 편성"이 켜져 있어 연속 결장을 줄이기 위해 잡복 ${stats.japbokGames}게임을 배정했습니다.`);
+  }
   return {
     type: bestPlan.type,
     rounds: best.rounds,
@@ -137,6 +142,25 @@ function generateStrict(config, seed, rng, budget) {
 }
 
 export function generateSchedule(config) {
+  // 1차: 기본 우선순위(잡복 최소화가 연속 결장보다 먼저)
+  const base = generateOnce({ ...config, options: { ...(config.options || {}), sitsOverJapbok: false } });
+  // 사용자가 직접 "성별 구분 없이 편성"(잡복 허용)을 켰는데 연속 결장이 남았으면,
+  // 연속 결장을 잡복보다 먼저 줄이는 우선순위로 한 번 더 만들어 연속 결장이 더 적은 쪽을 쓴다.
+  // (엔진이 인당 게임 수 때문에 스스로 성별 무시로 완화한 경우는 해당 없음 — 그땐 잡복 최소가 우선)
+  // 연속 결장이 없는 대진은 1차 결과 그대로라 잡복이 늘지 않는다.
+  const userIgnoreGender = !!(config.options && config.options.ignoreGender);
+  if (userIgnoreGender && base.stats.consecutiveSits > 0) {
+    try {
+      const alt = generateOnce({ ...config, options: { ...(config.options || {}), sitsOverJapbok: true } });
+      if (alt.stats.consecutiveSits < base.stats.consecutiveSits) return alt;
+    } catch (e) {
+      // 대안 탐색 실패 시 1차 결과 사용
+    }
+  }
+  return base;
+}
+
+function generateOnce(config) {
   const seed = Number.isFinite(config.seed) ? config.seed >>> 0 : 20260718;
   const rng = makeRng(seed || 1);
   const budget = Object.assign({ restarts: 24, iters: 500, polish: 1500 }, config.searchBudget || {});

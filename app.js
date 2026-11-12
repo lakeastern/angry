@@ -1366,7 +1366,7 @@ function renderSettings() {
         <label><input type="checkbox" id="opt-partner" ${s.allowPartnerRepeat ? 'checked' : ''}> 파트너 중복 허용</label>
         <span class="hint">라운드가 많거나 인원이 적어 같은 파트너가 불가피할 때</span>
         <label><input type="checkbox" id="opt-nogender" ${s.ignoreGender ? 'checked' : ''}> 성별 구분 없이 편성 (잡복 허용)</label>
-        <span class="hint">남녀 상관없이 실력 순위만으로 팀 구성 — 극단적 성비일 때 사용. 잡복은 허용하되 남복 팀 vs 여복 팀(남남 vs 여여) 대진은 만들지 않습니다</span>
+        <span class="hint">남녀 상관없이 실력 순위만으로 팀 구성 — 극단적 성비일 때 사용. 잡복은 허용하되 남복 팀 vs 여복 팀(남남 vs 여여) 대진은 만들지 않습니다. 1코트처럼 연속 결장이 불가피한 경우엔 잡복을 써서 연속 결장을 줄입니다</span>
         ${cloudAvailable() ? `
         <label>관리자 비밀번호 <input type="password" id="opt-pw" placeholder="${localStorage.getItem(K_KEY) ? '설정됨 · 변경하려면 입력' : '미설정'}" style="width:150px"> <button class="ghost mini2" id="pw-save">저장</button></label>
         <span class="hint">공유 링크 속 대진표 구성(설정·시드)이 이 비밀번호로 잠깁니다. 링크를 받아 이어서 편집할 사람(예: 회장)에게만 알려주세요. 변경하면 이전 링크의 구성은 복원할 수 없습니다.</span>` : ''}
